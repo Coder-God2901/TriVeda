@@ -1,10 +1,11 @@
-import { PrismaClient } from '@prisma/client';
+// import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
-import { ApiError } from '../utils/ApiError.js';
-import { ApiResponse } from '../utils/ApiResponse.js';
-import { asyncHandler } from '../utils/asyncHandler.js';
+import { prisma } from '../db/config.js';
+import ApiError from '../utils/ApiError.js';
+import ApiResponse from '../utils/ApiResponse.js';
+import asyncHandler from '../utils/asyncHandler.js';
 
-const prisma = new PrismaClient();
+// const prisma = new PrismaClient();
 
 export const diagnoseSymptoms = asyncHandler(async (req, res) => {
     // 1. Accept BOTH raw text and explicit dropdown data from the frontend

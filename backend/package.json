@@ -7,19 +7,21 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon index.js",
+    "dev": "nodemon src/app.js",
     "start": "nodemon src/app.js"
   },
   "devDependencies": {
+    "@prisma/config": "^7.5.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.1",
     "prisma": "^7.4.2"
   },
   "dependencies": {
     "@neondatabase/serverless": "github:neondatabase/serverless",
-    "@prisma/adapter-neon": "^7.4.2",
+    "@prisma/adapter-neon": "^7.5.0",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
+    "axios": "^1.13.6",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

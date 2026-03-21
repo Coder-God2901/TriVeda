@@ -1,13 +1,25 @@
+// ==========================================
+// 1. CORE CONFIGURATION
+// ==========================================
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
 }
 
-// --- ENUMS ---
-enum Role {
-  PATIENT
-  DOCTOR
+// ==========================================
+// 2. ENUMS
+// ==========================================
+enum StaffRole {
   ADMIN
+  DOCTOR
   RECEPTIONIST
+  PHARMACIST
+  NURSE
+  THERAPIST
+  BILLING
 }
 
 enum AppointmentStatus {
@@ -16,115 +28,118 @@ enum AppointmentStatus {
   CANCELLED
 }
 
-enum PaymentStatus {
-  PENDING
-  COMPLETED
-  REFUNDED
+// ==========================================
+// 3. B2C APP (The Patient / Public Side)
+// ==========================================
+model Patient {
+  id               String   @id @default(uuid())
+  email            String?  @unique
+  phoneNumber      String?  @unique
+  password         String?
+  name             String
+  isAppRegistered  Boolean  @default(false) // For walk-in ghost accounts
+  
+  // --- Integrated Health Profile Data ---
+  age              Int?
+  gender           String?
+  bloodGroup       String?
+  prakriti         String?  
+  vikriti          String?  
+  vataScore        Int?
+  pittaScore       Int?
+  kaphaScore       Int?
+  allergies        String[] @default([])
+  dietaryPref      String?
+  clinicalData     Json?
+  
+  appointments     Appointment[]
+  createdAt        DateTime @default(now())
 }
 
-// --- ENTITIES ---
-model Hospital {
-  id        String   @id @default(uuid())
-  name      String
-  users     User[]   
-  createdAt DateTime @default(now())
+// ==========================================
+// 4. B2B APP (The Hospital Staff Side)
+// ==========================================
+model HospitalStaff {
+  id               String   @id @default(uuid())
+  email            String   @unique // Official hospital email
+  password         String
+  name             String
+  role             StaffRole // Controls frontend UI access
+  
+  hospitalId       String
+  hospital         Hospital @relation(fields: [hospitalId], references: [id])
+
+  // Optional relations ONLY for roles that need extra data
+  doctorProfile    DoctorProfile? 
+  therapistProfile TherapistProfile?
+
+  appointmentsAsDoc Appointment[] 
+  createdAt        DateTime @default(now())
 }
 
-model User {
-  id            String   @id @default(uuid())
-  email         String?   @unique
-  phoneNumber   String?   @unique
-  password      String?   
-  isAppRegistered Boolean @default(false)
-  name          String
-  role          Role     @default(PATIENT)
-  
-  hospitalId    String?
-  hospital      Hospital? @relation(fields: [hospitalId], references: [id])
-
-  patientProfile PatientProfile?
-  doctorProfile  DoctorProfile?
-  
-  appointmentsAsPatient Appointment[] @relation("PatientAppointments")
-  appointmentsAsDoctor  Appointment[] @relation("DoctorAppointments")
-
-  createdAt     DateTime @default(now())
-}
-
-model PatientProfile {
-  id            String   @id @default(uuid())
-  userId        String   @unique
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  dominantDosha String?  
-  vataScore     Int?
-  pittaScore    Int?
-  kaphaScore    Int?
-  
-  age           Int?
-  gender        String?
-  bloodGroup    String?
-
-  prakriti      String?
-  vikriti       String?
-
-  allergies     String[] @default([])
-  dietaryPref   String?
-  
-  clinicalData  Json?    
-}
-
+// Specialized table ONLY for Doctors
 model DoctorProfile {
-  id            String   @id @default(uuid())
-  userId        String   @unique
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id @default(uuid())
+  staffId          String   @unique
+  staff            HospitalStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
   
-  specialty     String   
-  experienceYrs Int?
-  isAvailable   Boolean  @default(true)
-  departmentId  String?
-  department  Department? @relation(fields: [departmentId], references: [id])
+  departmentId     String?
+  department       Department? @relation(fields: [departmentId], references: [id])
+  
+  specialty        String
+  experienceYrs    Int
+  isAvailable      Boolean  @default(true)
 }
 
-model Appointment {
-  id              String   @id @default(uuid())
+// Specialized table ONLY for Therapists (Placeholder to prevent crashes)
+model TherapistProfile {
+  id               String   @id @default(uuid())
+  staffId          String   @unique
+  staff            HospitalStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
   
-  patientId       String
-  patient         User     @relation("PatientAppointments", fields: [patientId], references: [id])
-  doctorId        String
-  doctor          User     @relation("DoctorAppointments", fields: [doctorId], references: [id])
-  
-  scheduledAt     DateTime
-  status          AppointmentStatus @default(SCHEDULED)
-  
-  patientSymptoms String?  @db.Text 
-  aiSummary       String?  @db.Text 
+  certifications   String[] @default([])
+}
 
-  doctorNotes     String?  @db.Text // Private notes the doctor writes during the call
-  
-  dietChart       Json?    // Stores the meal timings, foods, and dosha rules
-  routinePlan     Json?    // Stores the Asanas/Yoga and lifestyle instructions
-  medications     Json?    // Stores the Ayurvedic medicines, dosage, and timing
-  
-  // Track if the appointment is done
-  isCompleted     Boolean  @default(false)
-
-  paymentStatus PaymentStatus @default(PENDING)
-  transactionId String? @unique
-
-  rescheduledToId String? @unique
-  rescheduledTo Appointment? @relation("RescheduleHistory",fields: [rescheduledToId], references: [id])
-  rescheduledFrom Appointment? @relation("RescheduleHistory")
-  
-  createdAt       DateTime @default(now())
+// ==========================================
+// 5. SHARED ENTITIES (Infrastructure)
+// ==========================================
+model Hospital {
+  id               String   @id @default(uuid())
+  name             String
+  address          String?
+  staff            HospitalStaff[]
 }
 
 model Department {
-  id          String          @id @default(uuid())
-  name        String          @unique 
-  description String          @db.Text 
+  id               String   @id @default(uuid())
+  name             String
+  description      String?
+  doctors          DoctorProfile[]
+}
+
+model Appointment {
+  id               String   @id @default(uuid())
   
-  doctors     DoctorProfile[] // A department can have many doctors
+  // Links to our new separated tables
+  patientId        String
+  patient          Patient  @relation(fields: [patientId], references: [id])
   
-  createdAt   DateTime        @default(now())
+  doctorId         String
+  doctor           HospitalStaff @relation(fields: [doctorId], references: [id])
+
+  scheduledAt      DateTime
+  status           AppointmentStatus @default(SCHEDULED)
+  paymentStatus    String   @default("PENDING")
+
+  patientSymptoms  String?  @db.Text
+  aiSummary        String?  @db.Text
+  
+  // Doctor's post-consultation data
+  doctorNotes      String?  @db.Text
+  dietChart        Json?    
+  routinePlan      Json?    
+  medications      Json?    
+  isCompleted      Boolean  @default(false)
+
+  createdAt        DateTime @default(now())
 }
