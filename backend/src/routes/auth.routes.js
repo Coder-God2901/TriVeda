@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { staffLogin, patientLogin, logout } from '../controllers/auth.controller.js';
+import { staffLogin, patientLogin, patientRegister, logout } from '../controllers/auth.controller.js';
 
 const router = Router();
 
@@ -8,6 +8,7 @@ const router = Router();
 // ==========================================
 router.post("/staff/login",staffLogin);
 router.post("/patient/login",patientLogin);
+router.post("/patient/register", patientRegister);
 router.post("/logout",logout);
 
 export default router;

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useSavePrakritiAssessment } from "@/hooks/useAppointments";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -270,6 +272,12 @@ interface PrakritiAssessmentProps {
 export default function PrakritiAssessment({
   onNavigate,
 }: PrakritiAssessmentProps) {
+  const saveAssessmentMutation = useSavePrakritiAssessment();
+  const [, setLocation] = useLocation();
+  const loggedInUser = JSON.parse(localStorage.getItem("triveda_user") || "{}");
+  const isPatientSession =
+    loggedInUser?.portal === "PATIENT" || loggedInUser?.role === "PATIENT";
+  const patientId = isPatientSession ? loggedInUser?.id || "" : "";
   // Enhanced State Management
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -482,9 +490,35 @@ export default function PrakritiAssessment({
       setCurrentQuestion(currentQuestion + 1);
     } else {
       setIsLoading(true);
-      setTimeout(() => {
+      setTimeout(async () => {
         setFinalTime(timeSpent); // Store the final time when assessment completes
-        calculateEnhancedResults();
+        const computedResults = calculateEnhancedResults();
+
+        const orderedAnswers = questions.map(
+          (question) => answers[question.id] || ""
+        );
+
+        if (patientId) {
+          saveAssessmentMutation.mutate({
+            patientId,
+            payload: {
+              answer1: orderedAnswers[0],
+              answer2: orderedAnswers[1],
+              answer3: orderedAnswers[2],
+              answer4: orderedAnswers[3],
+              answer5: orderedAnswers[4],
+              answer6: orderedAnswers[5],
+              answer7: orderedAnswers[6],
+              answer8: orderedAnswers[7],
+              vataScore: computedResults.weighted.vata,
+              pittaScore: computedResults.weighted.pitta,
+              kaphaScore: computedResults.weighted.kapha,
+              primaryDosha: getPrimaryDoshaFromWeighted(computedResults.weighted),
+              timeSpentSec: timeSpent,
+            },
+          });
+        }
+
         setIsLoading(false);
         setShowCelebration(true);
         setTimeout(() => setShowCelebration(false), 3000);
@@ -496,6 +530,27 @@ export default function PrakritiAssessment({
     if (currentQuestion > 0) {
       setCurrentQuestion(currentQuestion - 1);
     }
+  };
+
+  const handleGoToDashboard = () => {
+    if (onNavigate) {
+      onNavigate("/patient/dashboard");
+      return;
+    }
+    setLocation("/patient/dashboard");
+  };
+
+  const getPrimaryDoshaFromWeighted = (weightedScores: {
+    vata: number;
+    pitta: number;
+    kapha: number;
+  }) => {
+    return Object.entries(weightedScores).reduce((a, b) =>
+      weightedScores[a[0] as keyof typeof weightedScores] >
+      weightedScores[b[0] as keyof typeof weightedScores]
+        ? a
+        : b
+    )[0];
   };
 
   const calculateEnhancedResults = () => {
@@ -520,6 +575,13 @@ export default function PrakritiAssessment({
       weighted: weightedScores,
     });
     setShowResults(true);
+
+    return {
+      vata: scores.vata,
+      pitta: scores.pitta,
+      kapha: scores.kapha,
+      weighted: weightedScores,
+    };
   };
 
   const getPrimaryDosha = () => {
@@ -928,9 +990,10 @@ export default function PrakritiAssessment({
                   <Button
                     size="lg"
                     className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 via-[#10B981] to-[#10B981] text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                    onClick={handleGoToDashboard}
                   >
                     <TrendingUp className="h-4 w-4 mr-2" />
-                    View Health Plan
+                    Go to Dashboard
                   </Button>
                 </div>
               </div>

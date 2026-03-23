@@ -67,7 +67,7 @@ export default function LoginForm({ userType = "patient" }: LoginFormProps) {
             "Access personalized Ayurvedic diet charts and holistic health insights",
           icon: User,
           demoCredentials: {
-            email: "patient@trivedacare.com",
+            email: "rahul@example.com",
             password: "patient123",
           },
         };
@@ -79,8 +79,8 @@ export default function LoginForm({ userType = "patient" }: LoginFormProps) {
             "Create personalized Ayurvedic treatments and manage patient wellness",
           icon: Stethoscope,
           demoCredentials: {
-            email: "doctor@trivedacare.com",
-            password: "doctor123",
+            email: "akshat@cityhospital.com",
+            password: "Doc-232a59",
           },
         };
       case "admin":
@@ -91,7 +91,7 @@ export default function LoginForm({ userType = "patient" }: LoginFormProps) {
             "Oversee clinic operations and system administration",
           icon: Shield,
           demoCredentials: {
-            email: "admin@trivedacare.com",
+            email: "admin@cityhospital.com",
             password: "admin123",
           },
         };
@@ -317,9 +317,11 @@ export default function LoginForm({ userType = "patient" }: LoginFormProps) {
                   className="w-full h-11 border-[#1F5C3F]/15 dark:border-emerald-500/15 text-[#1F5C3F] dark:text-emerald-400 hover:bg-[#1F5C3F]/5 dark:hover:bg-emerald-500/5 rounded-xl font-medium font-sans transition-all duration-300"
                   data-testid={`button-${userType}-register`}
                   onClick={
-                    userType === "doctor"
-                      ? () => setLocation("/doctor/register")
-                      : undefined
+                    userType === "patient"
+                      ? () => setLocation("/patient/register")
+                      : userType === "doctor"
+                        ? () => setLocation("/doctor/register")
+                        : undefined
                   }
                 >
                   <RoleIcon className="h-4 w-4 mr-2" />

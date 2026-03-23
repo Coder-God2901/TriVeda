@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
+import { usePatientDashboard } from "@/hooks/useAppointments";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLocation } from "wouter";
 import {
   Calendar,
   Clock,
@@ -211,16 +213,48 @@ const gradients = {
   info: "from-[#1F5C3F] to-[#10B981]",
 };
 
+type DailyScheduleItem = {
+  time: string;
+  label: string;
+  icon: React.ElementType;
+  category: string;
+  color: string;
+  instruction: string;
+};
+
 export default function AyurvedicPatientDashboard() {
   const [activeTab, setActiveTab] = useState(0);
-  const [patient] = useState(initialPatient);
-  const [dietChart] = useState(initialDietChart);
-  const [appointments, setAppointments] = useState(initialAppointments);
+  const [showPrakritiModal, setShowPrakritiModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<typeof initialAppointments[number] | null>(null);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [appointmentFilter, setAppointmentFilter] = useState<"all" | "upcoming" | "past" | "cancelled">("upcoming");
   const [appointmentView, setAppointmentView] = useState<"list" | "calendar">("list");
-  
+  const [, setLocation] = useLocation();
+
+  const loggedInUser = JSON.parse(localStorage.getItem('triveda_user') || '{}');
+  const isPatientSession = loggedInUser?.portal === 'PATIENT' || loggedInUser?.role === 'PATIENT';
+  const patientId = isPatientSession ? loggedInUser?.id || "" : "";
+
+  const { data: dashboardData, isLoading } = usePatientDashboard(patientId);
+  const dashboardPayload: any = dashboardData || {};
+
+  const patient: typeof initialPatient = dashboardPayload.patient || initialPatient;
+  const dietChart: typeof initialDietChart =
+    dashboardPayload.dietChart || initialDietChart;
+  const appointments: Array<typeof initialAppointments[number]> = (
+    dashboardPayload.appointments || initialAppointments
+  ).map(
+    (appointment: any, index: number) => ({
+      ...appointment,
+      id:
+        typeof appointment.id === "number"
+          ? appointment.id
+          : Number.isNaN(Number(appointment.id))
+            ? index + 1
+            : Number(appointment.id),
+    }),
+  );
+
   const [rescheduleData, setRescheduleData] = useState<{
     id: number;
     date: string;
@@ -231,14 +265,29 @@ export default function AyurvedicPatientDashboard() {
     Record<string, { submitted: boolean; doctor: string; newDate?: string; newTime?: string; status: string }>
   >({});
   
-  const [healthRecords] = useState(initialHealthRecords);
-  const [medications] = useState(initialMedications);
-  const [goals, setGoals] = useState(initialGoals);
+  const healthRecords: Array<typeof initialHealthRecords[number]> =
+    dashboardPayload.healthRecords?.length > 0
+      ? dashboardPayload.healthRecords
+      : initialHealthRecords;
+  const medications: Array<typeof initialMedications[number]> =
+    dashboardPayload.medications?.length > 0
+      ? dashboardPayload.medications
+      : initialMedications;
+  const goals: Array<typeof initialGoals[number]> =
+    dashboardPayload.goals?.length > 0 ? dashboardPayload.goals : initialGoals;
   const [selectedGoal, setSelectedGoal] = useState<typeof initialGoals[number] | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [goalFilter, setGoalFilter] = useState<"all" | "health" | "mental" | "fitness">("all");
   
-  const [notifications, setNotifications] = useState(3);
+  const [notifications, setNotifications] = useState<number>(
+    dashboardPayload.notifications ?? 3,
+  );
+
+  useEffect(() => {
+    if (typeof dashboardPayload.notifications === "number") {
+      setNotifications(dashboardPayload.notifications);
+    }
+  }, [dashboardPayload.notifications]);
 
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -246,21 +295,36 @@ export default function AyurvedicPatientDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const dailySchedule = [
-    { time: "06:00", label: "Morning Pranayama", icon: Wind, category: "yoga", color: "emerald", instruction: "Anulom Vilom breathing — 15 mins" },
-    { time: "07:00", label: "Yoga Session", icon: SunIcon, category: "yoga", color: "teal", instruction: "As prescribed by Dr. Suresh Iyer" },
-    { time: "08:00", label: "Breakfast", icon: CoffeeIcon, category: "meal", color: "amber", instruction: "Warm Oat Porridge, Fresh Berries, Herbal Tea" },
-    { time: "09:00", label: "Morning Medication", icon: Pill, category: "medicine", color: "blue", instruction: "Ashwagandha Capsules — 500mg" },
-    { time: "12:30", label: "Lunch", icon: Salad, category: "meal", color: "lime", instruction: "Quinoa Bowl, Steamed Vegetables, Turmeric Rice" },
-    { time: "18:00", label: "Evening Oil", icon: Droplets, category: "medicine", color: "purple", instruction: "Brahmi Oil — 5 drops on scalp" },
-    { time: "19:30", label: "Evening Walk", icon: Activity, category: "yoga", color: "green", instruction: "20-min gentle walk in fresh air" },
-    { time: "20:00", label: "Dinner", icon: Utensils, category: "meal", color: "orange", instruction: "Lentil Soup, Sautéed Greens, Chamomile Tea" },
-    { time: "21:30", label: "Night Medication", icon: Pill, category: "medicine", color: "indigo", instruction: "Triphala Churna — 1 tsp (Before Sleep)" },
-    { time: "22:00", label: "Meditation", icon: MoonIcon, category: "yoga", color: "violet", instruction: "Guided meditation before sleep — 10 mins" },
-  ];
+  const dailySchedule: DailyScheduleItem[] =
+    dashboardPayload.dailySchedule?.length > 0
+      ? dashboardPayload.dailySchedule.map((item: any) => ({
+          time: item.time,
+          label: item.label,
+          icon:
+            item.category === "meal"
+              ? Utensils
+              : item.category === "medicine"
+                ? Pill
+                : Wind,
+          category: item.category,
+          color: item.color || "emerald",
+          instruction: item.instruction,
+        }))
+      : [
+          { time: "06:00", label: "Morning Pranayama", icon: Wind, category: "yoga", color: "emerald", instruction: "Anulom Vilom breathing — 15 mins" },
+          { time: "07:00", label: "Yoga Session", icon: SunIcon, category: "yoga", color: "teal", instruction: "As prescribed by Dr. Suresh Iyer" },
+          { time: "08:00", label: "Breakfast", icon: CoffeeIcon, category: "meal", color: "amber", instruction: "Warm Oat Porridge, Fresh Berries, Herbal Tea" },
+          { time: "09:00", label: "Morning Medication", icon: Pill, category: "medicine", color: "blue", instruction: "Ashwagandha Capsules — 500mg" },
+          { time: "12:30", label: "Lunch", icon: Salad, category: "meal", color: "lime", instruction: "Quinoa Bowl, Steamed Vegetables, Turmeric Rice" },
+          { time: "18:00", label: "Evening Oil", icon: Droplets, category: "medicine", color: "purple", instruction: "Brahmi Oil — 5 drops on scalp" },
+          { time: "19:30", label: "Evening Walk", icon: Activity, category: "yoga", color: "green", instruction: "20-min gentle walk in fresh air" },
+          { time: "20:00", label: "Dinner", icon: Utensils, category: "meal", color: "orange", instruction: "Lentil Soup, Sautéed Greens, Chamomile Tea" },
+          { time: "21:30", label: "Night Medication", icon: Pill, category: "medicine", color: "indigo", instruction: "Triphala Churna — 1 tsp (Before Sleep)" },
+          { time: "22:00", label: "Meditation", icon: MoonIcon, category: "yoga", color: "violet", instruction: "Guided meditation before sleep — 10 mins" },
+        ];
 
   const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
-  const upcomingActivities = dailySchedule.filter(item => {
+  const upcomingActivities = dailySchedule.filter((item: DailyScheduleItem) => {
     const [h, m] = item.time.split(':').map(Number);
     return (h * 60 + m) >= currentMinutes;
   });
@@ -758,6 +822,12 @@ export default function AyurvedicPatientDashboard() {
   });
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
+  useEffect(() => {
+    if (!feedback.doctor && appointments.length > 0) {
+      setFeedback((prev) => ({ ...prev, doctor: appointments[0].doctor }));
+    }
+  }, [appointments, feedback.doctor]);
+
   const handleRescheduleSubmit = (appointmentId: number, date: string, time: string, reason: string) => {
     const apt = appointments.find((a) => a.id === appointmentId);
     if (apt) {
@@ -773,12 +843,10 @@ export default function AyurvedicPatientDashboard() {
       }));
       
       // Update appointment status
-      setAppointments(prev => 
-        prev.map(apt => 
-          apt.id === appointmentId 
-            ? { ...apt, status: "pending" as const }
-            : apt
-        )
+      setSelectedAppointment((prev) =>
+        prev && prev.id === appointmentId
+          ? { ...prev, status: "pending" as const }
+          : prev,
       );
     }
   };
@@ -796,6 +864,11 @@ export default function AyurvedicPatientDashboard() {
         return true;
     }
   });
+
+  const today = new Date().toISOString().split('T')[0];
+  const upcomingAppointments = appointments
+    .filter((apt) => apt.date >= today && apt.status !== "cancelled")
+    .slice(0, 2);
 
   const filteredGoals = goals.filter(goal => {
     switch(goalFilter) {
@@ -1056,31 +1129,66 @@ export default function AyurvedicPatientDashboard() {
             </button>
           </div>
           <div className="space-y-3">
-            {appointments.filter(apt => apt.date >= new Date().toISOString().split('T')[0] && apt.status !== "cancelled").slice(0, 2).map((apt, index) => (
-              <motion.div
-                key={apt.id}
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: index * 0.1 }}
-                className="flex items-center p-4 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100 cursor-pointer hover:shadow-md transition-all"
-                onClick={() => {
-                  setSelectedAppointment(apt);
-                  setShowAppointmentModal(true);
-                }}
-              >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-100 to-emerald-100 flex items-center justify-center mr-4">
-                  <User className="w-6 h-6 text-emerald-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-900">{apt.doctor}</p>
-                  <p className="text-sm text-gray-600">{apt.specialty}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium text-gray-900">{apt.date}</p>
-                  <p className="text-sm text-gray-600">{apt.time}</p>
-                </div>
-              </motion.div>
-            ))}
+            {isLoading ? (
+              <p className="text-gray-500 p-4">Loading your appointments...</p>
+            ) : upcomingAppointments.length === 0 ? (
+              <div className="p-6 text-center border-2 border-dashed border-gray-200 rounded-xl">
+                <p className="text-gray-500 mb-4">No upcoming appointments.</p>
+                <button
+                  onClick={() => setLocation("/patient/assessment")}
+                  className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[#10B981] hover:bg-[#0D9488] text-white font-medium transition-colors"
+                >
+                  Book Now
+                </button>
+              </div>
+            ) : (
+              upcomingAppointments.map((apt, index) => {
+                const appointmentDate = new Date(apt.date);
+                const status = (apt.status || "pending").toLowerCase();
+
+                return (
+                  <motion.div
+                    key={apt.id}
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="group flex items-start gap-4 rounded-xl border border-gray-100 bg-white p-4 transition-all hover:shadow-md cursor-pointer"
+                    onClick={() => {
+                      setSelectedAppointment(apt);
+                      setShowAppointmentModal(true);
+                    }}
+                  >
+                    <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                      <span className="text-xs font-semibold uppercase">
+                        {appointmentDate.toLocaleDateString("en-US", { month: "short" })}
+                      </span>
+                      <span className="text-lg font-bold leading-none">{appointmentDate.getDate()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="font-semibold text-gray-900 truncate">{apt.doctor}</h4>
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                            status === "confirmed"
+                              ? "bg-green-50 text-green-700 border-green-100"
+                              : status === "cancelled"
+                                ? "bg-rose-50 text-rose-700 border-rose-100"
+                                : "bg-blue-50 text-blue-700 border-blue-100"
+                          }`}
+                        >
+                          {apt.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-gray-500 flex items-center">
+                        <Clock className="h-3.5 w-3.5 mr-1" />
+                        {apt.time}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500 truncate">Specialty: {apt.specialty}</p>
+                    </div>
+                  </motion.div>
+                );
+              })
+            )}
           </div>
         </motion.div>
 

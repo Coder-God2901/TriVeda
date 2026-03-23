@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { prisma } from './db/config.js';
+import ApiError from './utils/ApiError.js';
+import ApiResponse from './utils/ApiResponse.js';
 
 //Routes
 import authRoutes from './routes/auth.routes.js';
@@ -43,6 +45,20 @@ app.get('/', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/admin', adminRoutes);
+
+// Global error handler
+app.use((err, req, res, next) => {
+    if (err instanceof ApiError) {
+        return res
+            .status(err.statusCode || 400)
+            .json(new ApiResponse(err.statusCode || 400, null, err.message));
+    }
+
+    console.error(err);
+    return res
+        .status(500)
+        .json(new ApiResponse(500, null, 'Internal Server Error'));
+});
 
 
 // Start the server

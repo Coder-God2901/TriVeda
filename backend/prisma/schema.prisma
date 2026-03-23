@@ -27,6 +27,30 @@ model Patient {
   clinicalData    Json?
   createdAt       DateTime      @default(now())
   appointments    Appointment[]
+  assessments     PrakritiAssessment[]
+}
+
+model PrakritiAssessment {
+  id           String   @id @default(uuid())
+  patientId    String
+  answer1      String
+  answer2      String
+  answer3      String
+  answer4      String
+  answer5      String
+  answer6      String
+  answer7      String
+  answer8      String
+  vataScore    Int
+  pittaScore   Int
+  kaphaScore   Int
+  primaryDosha String
+  timeSpentSec Int?
+  createdAt    DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, createdAt])
 }
 
 model HospitalStaff {

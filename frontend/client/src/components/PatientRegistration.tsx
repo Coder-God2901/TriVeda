@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { usePatientRegister } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -41,13 +43,14 @@ import {
 import { useRef } from "react";
 
 interface PatientFormData {
-  abhaId: string;
   name: string;
   age: string;
   gender: string;
   weight: string;
   height: string;
   email: string;
+  password: string;
+  confirmPassword: string;
   phone: string;
   dietaryHabits: string;
   healthGoals: string[];
@@ -61,35 +64,144 @@ interface PatientRegistrationProps {
 export default function PatientRegistration({
   onNavigate,
 }: PatientRegistrationProps) {
+  const { toast } = useToast();
+  const patientRegisterMutation = usePatientRegister();
   const [, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<PatientFormData>({
-    abhaId: "",
     name: "",
     age: "",
     gender: "",
     weight: "",
     height: "",
     email: "",
+    password: "",
+    confirmPassword: "",
     phone: "",
     dietaryHabits: "",
     healthGoals: [],
     allergies: "",
     chronicConditions: [],
   });
+  const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
   const [showSuccess, setShowSuccess] = useState(false);
   const totalSteps = 4;
   const progress = (currentStep / totalSteps) * 100;
   const formRef = useRef<HTMLDivElement>(null);
 
+  const validateCurrentStep = () => {
+    const errors: Record<string, string> = {};
+
+    if (currentStep === 1) {
+      if (!formData.name.trim()) errors.name = "Full name is required";
+
+      const ageValue = Number(formData.age);
+      if (!formData.age || Number.isNaN(ageValue) || ageValue <= 0) {
+        errors.age = "Valid age is required";
+      }
+
+      if (!formData.gender) errors.gender = "Gender is required";
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!formData.email.trim()) {
+        errors.email = "Email is required";
+      } else if (!emailRegex.test(formData.email.trim())) {
+        errors.email = "Enter a valid email address";
+      }
+
+      const phoneDigits = formData.phone.replace(/\D/g, "");
+      if (!formData.phone.trim()) {
+        errors.phone = "Phone number is required";
+      } else if (phoneDigits.length < 10) {
+        errors.phone = "Phone number must be at least 10 digits";
+      }
+
+      if (!formData.password) {
+        errors.password = "Password is required";
+      } else if (formData.password.length < 8) {
+        errors.password = "Password must be at least 8 characters";
+      }
+
+      if (!formData.confirmPassword) {
+        errors.confirmPassword = "Confirm your password";
+      } else if (formData.password !== formData.confirmPassword) {
+        errors.confirmPassword = "Passwords do not match";
+      }
+    }
+
+    if (currentStep === 2) {
+      const weightValue = Number(formData.weight);
+      const heightValue = Number(formData.height);
+
+      if (!formData.weight || Number.isNaN(weightValue) || weightValue <= 0) {
+        errors.weight = "Valid weight is required";
+      }
+
+      if (!formData.height || Number.isNaN(heightValue) || heightValue <= 0) {
+        errors.height = "Valid height is required";
+      }
+
+      if (!formData.dietaryHabits) {
+        errors.dietaryHabits = "Dietary preference is required";
+      }
+    }
+
+    if (currentStep === 3) {
+      if (formData.healthGoals.length === 0) {
+        errors.healthGoals = "Select at least one health goal";
+      }
+    }
+
+    if (currentStep === 4) {
+      if (formData.chronicConditions.length === 0) {
+        errors.chronicConditions = "Select at least one option";
+      }
+    }
+
+    setStepErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleNext = () => {
+    if (!validateCurrentStep()) return;
+
     if (currentStep < totalSteps) {
       setCurrentStep(currentStep + 1);
       setTimeout(() => {
         formRef.current?.scrollIntoView({ behavior: "smooth" });
       }, 100);
     } else {
-      setShowSuccess(true);
+      patientRegisterMutation.mutate(
+        {
+          name: formData.name.trim(),
+          age: Number(formData.age),
+          gender: formData.gender,
+          weight: Number(formData.weight),
+          height: Number(formData.height),
+          email: formData.email.trim().toLowerCase(),
+          password: formData.password,
+          phone: formData.phone.trim(),
+          dietaryHabits: formData.dietaryHabits,
+          healthGoals: formData.healthGoals,
+          allergies: formData.allergies,
+          chronicConditions: formData.chronicConditions,
+        },
+        {
+          onSuccess: (data: any) => {
+            if (data?.user?.id) {
+              localStorage.setItem(
+                "triveda_user",
+                JSON.stringify({ ...data.user, portal: "PATIENT", role: "PATIENT" })
+              );
+            }
+            toast({
+              title: "Registration Successful",
+              description: "Your account has been created. Proceed to assessment.",
+            });
+            setShowSuccess(true);
+          },
+        },
+      );
     }
   };
 
@@ -113,6 +225,12 @@ export default function PatientRegistration({
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+    setStepErrors((prev) => {
+      if (!prev[field]) return prev;
+      const updated = { ...prev };
+      delete updated[field];
+      return updated;
+    });
   };
 
   const handleArrayToggle = (
@@ -125,6 +243,12 @@ export default function PatientRegistration({
         ? prev[field].filter((item) => item !== value)
         : [...prev[field], value],
     }));
+    setStepErrors((prev) => {
+      if (!prev[field]) return prev;
+      const updated = { ...prev };
+      delete updated[field];
+      return updated;
+    });
   };
 
   const renderStep = () => {
@@ -135,20 +259,6 @@ export default function PatientRegistration({
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <User className="w-5 h-5 text-primary" /> Personal Information
             </h3>
-            <div className="mb-4">
-              <Label htmlFor="abha-id" className="flex items-center gap-1 mb-1">
-                <ShieldCheck className="w-4 h-4 text-muted-foreground" /> ABHA
-                ID *
-              </Label>
-              <Input
-                id="abha-id"
-                data-testid="input-abha-id"
-                value={formData.abhaId}
-                onChange={(e) => handleInputChange("abhaId", e.target.value)}
-                placeholder="Enter your ABHA ID"
-                required
-              />
-            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="name" className="flex items-center gap-1 mb-1">
@@ -162,6 +272,9 @@ export default function PatientRegistration({
                   onChange={(e) => handleInputChange("name", e.target.value)}
                   placeholder="Enter your full name"
                 />
+                {stepErrors.name && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.name}</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="age" className="flex items-center gap-1 mb-1">
@@ -175,6 +288,9 @@ export default function PatientRegistration({
                   onChange={(e) => handleInputChange("age", e.target.value)}
                   placeholder="Age in years"
                 />
+                {stepErrors.age && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.age}</p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -190,6 +306,9 @@ export default function PatientRegistration({
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   placeholder="your.email@example.com"
                 />
+                {stepErrors.email && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.email}</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="phone" className="flex items-center gap-1 mb-1">
@@ -203,6 +322,45 @@ export default function PatientRegistration({
                   onChange={(e) => handleInputChange("phone", e.target.value)}
                   placeholder="+91 98765 43210"
                 />
+                {stepErrors.phone && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.phone}</p>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="password" className="flex items-center gap-1 mb-1">
+                  <ShieldCheck className="w-4 h-4 text-muted-foreground" /> Password *
+                </Label>
+                <Input
+                  id="password"
+                  data-testid="input-password"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange("password", e.target.value)}
+                  placeholder="Minimum 8 characters"
+                />
+                {stepErrors.password && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.password}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="confirm-password" className="flex items-center gap-1 mb-1">
+                  <ShieldCheck className="w-4 h-4 text-muted-foreground" /> Confirm Password *
+                </Label>
+                <Input
+                  id="confirm-password"
+                  data-testid="input-confirm-password"
+                  type="password"
+                  value={formData.confirmPassword}
+                  onChange={(e) =>
+                    handleInputChange("confirmPassword", e.target.value)
+                  }
+                  placeholder="Re-enter your password"
+                />
+                {stepErrors.confirmPassword && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.confirmPassword}</p>
+                )}
               </div>
             </div>
             <div>
@@ -222,6 +380,9 @@ export default function PatientRegistration({
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
+              {stepErrors.gender && (
+                <p className="text-xs text-red-500 mt-1">{stepErrors.gender}</p>
+              )}
             </div>
           </div>
         );
@@ -250,6 +411,9 @@ export default function PatientRegistration({
                   onChange={(e) => handleInputChange("weight", e.target.value)}
                   placeholder="70.5"
                 />
+                {stepErrors.weight && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.weight}</p>
+                )}
               </div>
               <div>
                 <Label
@@ -267,6 +431,9 @@ export default function PatientRegistration({
                   onChange={(e) => handleInputChange("height", e.target.value)}
                   placeholder="170"
                 />
+                {stepErrors.height && (
+                  <p className="text-xs text-red-500 mt-1">{stepErrors.height}</p>
+                )}
               </div>
             </div>
             {formData.weight && formData.height && (
@@ -305,6 +472,9 @@ export default function PatientRegistration({
                   <SelectItem value="eggetarian">Eggetarian</SelectItem>
                 </SelectContent>
               </Select>
+              {stepErrors.dietaryHabits && (
+                <p className="text-xs text-red-500 mt-1">{stepErrors.dietaryHabits}</p>
+              )}
             </div>
           </div>
         );
@@ -348,6 +518,9 @@ export default function PatientRegistration({
                   </div>
                 ))}
               </div>
+              {stepErrors.healthGoals && (
+                <p className="text-xs text-red-500 mt-2">{stepErrors.healthGoals}</p>
+              )}
             </div>
             <div>
               <Label
@@ -407,6 +580,9 @@ export default function PatientRegistration({
                   </div>
                 ))}
               </div>
+              {stepErrors.chronicConditions && (
+                <p className="text-xs text-red-500 mt-2">{stepErrors.chronicConditions}</p>
+              )}
             </div>
             <div className="bg-primary/5 p-4 rounded-lg flex items-center gap-2">
               <Leaf className="w-5 h-5 text-green-600" />
@@ -537,13 +713,16 @@ export default function PatientRegistration({
                   </Button>
                   <Button
                     onClick={handleNext}
+                    disabled={patientRegisterMutation.isPending}
                     data-testid="button-next"
                     className="flex items-center gap-2 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600 text-white font-semibold rounded-lg shadow-lg hover:opacity-90 hover:scale-[1.02] transition-all duration-300"
                   >
                     {currentStep === totalSteps ? (
                       <>
-                        <CheckCircle2 className="h-4 w-4" /> Complete
-                        Registration
+                        <CheckCircle2 className="h-4 w-4" />
+                        {patientRegisterMutation.isPending
+                          ? "Submitting..."
+                          : "Complete Registration"}
                       </>
                     ) : (
                       <>

@@ -36,4 +36,22 @@ export const appointmentApi = {
   saveDoctorPlan: async (appointmentId: string, planData: any) => {
     return apiClient.put(`/appointments/${appointmentId}/plan`, planData);
   },
+  
+  // 6. Fetch Patient's Appointments
+  getPatientAppointments: async (patientId: string) => {
+        return apiClient.get(`/appointments/patient/${patientId}`);
+    },
+
+  // 7. Fetch Patient Dashboard Data (profile + appointments + plans)
+  getPatientDashboard: async (patientId: string) => {
+    return apiClient.get(`/appointments/patient/${patientId}/dashboard`);
+  },
+
+  // 8. Save Prakriti Assessment Results
+  savePrakritiAssessment: async (patientId: string, payload: any) => {
+    return apiClient.post(
+      `/appointments/patient/${patientId}/prakriti-assessment`,
+      payload,
+    );
+  }
 };

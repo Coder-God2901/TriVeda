@@ -374,6 +374,8 @@ export default function AdminDashboard() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -384,6 +386,29 @@ export default function AdminDashboard() {
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; description?: string }>>([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
+  const [listsLoading, setListsLoading] = useState(true);
+
+  const fetchAdminLists = async () => {
+    try {
+      setListsLoading(true);
+      const resolvedHospitalId =
+        user?.hospitalId || user?.hospitalID || user?.hospital?.id || "";
+
+      const [doctorList, patientList] = await Promise.all([
+        authApi.getDoctors(resolvedHospitalId || undefined),
+        authApi.getPatients(),
+      ]);
+
+      setDoctors(Array.isArray(doctorList) ? doctorList : []);
+      setPatients(Array.isArray(patientList) ? patientList : []);
+    } catch (error) {
+      console.error("Failed to fetch admin lists:", error);
+      setDoctors([]);
+      setPatients([]);
+    } finally {
+      setListsLoading(false);
+    }
+  };
 
   // Fetch departments on mount
   useEffect(() => {
@@ -400,15 +425,16 @@ export default function AdminDashboard() {
     };
 
     fetchDepartments();
+    fetchAdminLists();
   }, []);
 
-  const filteredDoctors = mockDoctors.filter(
+  const filteredDoctors = doctors.filter(
     (Doctor) =>
       Doctor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       Doctor.specialization.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
-  const filteredPatients = mockPatients.filter(
+  const filteredPatients = patients.filter(
     (patient) =>
       patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       patient.doctor.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -455,11 +481,44 @@ export default function AdminDashboard() {
     console.log(action, userId);
   };
 
+  const deleteDoctorMutation = useMutation({
+    mutationFn: authApi.deleteDoctor,
+    onSuccess: () => {
+      fetchAdminLists();
+    },
+    onError: (error: any) => {
+      alert(`Error: ${error.message}`);
+    },
+  });
+
+  const deletePatientMutation = useMutation({
+    mutationFn: authApi.deletePatient,
+    onSuccess: () => {
+      fetchAdminLists();
+    },
+    onError: (error: any) => {
+      alert(`Error: ${error.message}`);
+    },
+  });
+
+  const handleDeleteDoctor = (doctorId: string, doctorName: string) => {
+    const confirmed = window.confirm(`Delete doctor ${doctorName}? This cannot be undone.`);
+    if (!confirmed) return;
+    deleteDoctorMutation.mutate(doctorId);
+  };
+
+  const handleDeletePatient = (patientId: string, patientName: string) => {
+    const confirmed = window.confirm(`Delete patient ${patientName}? This cannot be undone.`);
+    if (!confirmed) return;
+    deletePatientMutation.mutate(patientId);
+  };
+
   const createDoctorMutation = useMutation({
     mutationFn: authApi.createDoctor,
     onSuccess: (data: any) => {
       // Stop showing the form and show the password instead
       setGeneratedPassword(data.temporaryPassword);
+      fetchAdminLists();
       queryClient.invalidateQueries({ queryKey: ["hospitalDoctors"] });
     },
     onError: (error: any) => {
@@ -467,7 +526,7 @@ export default function AdminDashboard() {
     }
   });
 
-  const handleCreateDoctor = (formData) => {
+  const handleCreateDoctor = (formData: any) => {
     createDoctorMutation.mutate({
       ...formData,
       hospitalId: user.hospitalId, // Attach the admin's hospital!
@@ -871,6 +930,9 @@ export default function AdminDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-6">
+                  {listsLoading ? (
+                    <p className="text-gray-500">Loading doctors...</p>
+                  ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
                     {filteredDoctors.map((Doctor, index) => (
                       <motion.div
@@ -890,7 +952,7 @@ export default function AdminDashboard() {
                                 <AvatarFallback className="bg-gradient-to-br from-[#1F5C3F] to-[#10B981] text-white text-lg">
                                   {Doctor.name
                                     .split(" ")
-                                    .map((n) => n[0])
+                                    .map((n: string) => n[0])
                                     .join("")}
                                 </AvatarFallback>
                               </Avatar>
@@ -964,19 +1026,33 @@ export default function AdminDashboard() {
                               </span>
                             </div>
                             <div className="flex justify-end">
-                              <motion.button
-                                whileHover={{ x: 5 }}
-                                className="text-[#1F5C3F] dark:text-[#10B981] font-medium text-sm flex items-center"
-                              >
-                                View Profile
-                                <ChevronRight className="h-4 w-4 ml-1" />
-                              </motion.button>
+                                <div className="flex items-center gap-2">
+                                  <motion.button
+                                    whileHover={{ x: 5 }}
+                                    className="text-[#1F5C3F] dark:text-[#10B981] font-medium text-sm flex items-center"
+                                  >
+                                    View Profile
+                                    <ChevronRight className="h-4 w-4 ml-1" />
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.08 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    className="text-red-600 font-medium text-sm flex items-center"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteDoctor(String(Doctor.id), Doctor.name);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-1" />
+                                    Delete
+                                  </motion.button>
+                                </div>
                             </div>
                           </div>
 
                           {Doctor.achievements && (
                             <div className="flex flex-wrap gap-2 mt-4 min-h-[32px] content-start">
-                              {Doctor.achievements.map((achievement, i) => (
+                              {Doctor.achievements.map((achievement: string, i: number) => (
                                 <Badge
                                   key={i}
                                   variant="outline"
@@ -992,6 +1068,7 @@ export default function AdminDashboard() {
                       </motion.div>
                     ))}
                   </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -1041,6 +1118,9 @@ export default function AdminDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="p-4 sm:p-6 overflow-x-hidden">
+                  {listsLoading ? (
+                    <p className="text-gray-500">Loading patients...</p>
+                  ) : (
                   <div className="space-y-4 overflow-x-hidden">
                     {filteredPatients.map((patient, index) => (
                       <motion.div
@@ -1058,7 +1138,7 @@ export default function AdminDashboard() {
                               <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-green-500 text-white">
                                 {patient.name
                                   .split(" ")
-                                  .map((n) => n[0])
+                                  .map((n: string) => n[0])
                                   .join("")}
                               </AvatarFallback>
                             </Avatar>
@@ -1169,6 +1249,17 @@ export default function AdminDashboard() {
                             <motion.button
                               whileHover={{ scale: 1.1 }}
                               whileTap={{ scale: 0.9 }}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeletePatient(String(patient.id), patient.name);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
                               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                             >
                               <MoreVertical className="h-4 w-4 text-gray-500" />
@@ -1178,6 +1269,7 @@ export default function AdminDashboard() {
                       </motion.div>
                     ))}
                   </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>

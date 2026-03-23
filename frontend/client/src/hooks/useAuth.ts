@@ -50,3 +50,18 @@ export const usePatientLogin = () => {
         }
     });
 };
+
+export const usePatientRegister = () => {
+    const { toast } = useToast();
+
+    return useMutation({
+        mutationFn: authApi.patientRegister,
+        onError: (error: Error) => {
+            toast({
+                title: "Registration Failed",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+};

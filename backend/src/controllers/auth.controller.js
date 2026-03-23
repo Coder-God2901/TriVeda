@@ -122,6 +122,98 @@ export const patientLogin = asyncHandler(async (req, res) => {
 });
 
 // ==========================================
+// PATIENT REGISTRATION (B2C)
+// ==========================================
+export const patientRegister = asyncHandler(async (req, res) => {
+    const {
+        name,
+        age,
+        gender,
+        weight,
+        height,
+        email,
+        password,
+        phone,
+        dietaryHabits,
+        healthGoals,
+        allergies,
+        chronicConditions,
+    } = req.body;
+
+    if (!name || !email || !password || !phone || !gender) {
+        throw new ApiError(400, "Name, email, password, phone, and gender are required.");
+    }
+
+    if (String(password).length < 8) {
+        throw new ApiError(400, "Password must be at least 8 characters long.");
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const parsedAllergies = String(allergies || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    const clinicalData = {
+        weight: weight ? Number(weight) : null,
+        height: height ? Number(height) : null,
+        healthGoals: Array.isArray(healthGoals) ? healthGoals : [],
+        chronicConditions: Array.isArray(chronicConditions) ? chronicConditions : [],
+    };
+
+    const existingPatient = await prisma.patient.findUnique({
+        where: { email: normalizedEmail },
+    });
+
+    if (existingPatient?.isAppRegistered) {
+        throw new ApiError(409, "An account with this email already exists. Please login.");
+    }
+
+    const patient = existingPatient
+        ? await prisma.patient.update({
+            where: { id: existingPatient.id },
+            data: {
+                name: String(name).trim(),
+                password: hashedPassword,
+                phoneNumber: String(phone).trim(),
+                age: age ? Number(age) : null,
+                gender: String(gender),
+                dietaryPref: dietaryHabits || null,
+                allergies: parsedAllergies,
+                clinicalData,
+                isAppRegistered: true,
+            },
+        })
+        : await prisma.patient.create({
+            data: {
+                name: String(name).trim(),
+                email: normalizedEmail,
+                password: hashedPassword,
+                phoneNumber: String(phone).trim(),
+                age: age ? Number(age) : null,
+                gender: String(gender),
+                dietaryPref: dietaryHabits || null,
+                allergies: parsedAllergies,
+                clinicalData,
+                isAppRegistered: true,
+            },
+        });
+
+    const safeUserData = {
+        id: patient.id,
+        name: patient.name,
+        email: patient.email,
+    };
+
+    return res.status(201).json(
+        new ApiResponse(201, { user: safeUserData }, "Patient registered successfully.")
+    );
+});
+
+// ==========================================
 // LOGOUT (Clears the cookie)
 // ==========================================
 export const logout = asyncHandler(async (req, res) => {
