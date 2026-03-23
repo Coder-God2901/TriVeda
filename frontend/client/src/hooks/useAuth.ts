@@ -43,7 +43,7 @@ export const usePatientLogin = () => {
             // Save safe user data to localStorage
             localStorage.setItem('triveda_user', JSON.stringify({ ...data.user, portal: 'PATIENT' }));
             toast({ title: `Welcome back, ${data.user.name}!` });
-            navigate('/patient-dashboard'); // Send them to the Patient Portal!
+            navigate('/patient/dashboard');
         },
         onError: (error: Error) => {
             toast({ title: "Login Failed", description: error.message, variant: "destructive" });
