@@ -66,7 +66,7 @@ Contents:
 - Probable dosha imbalance 
 - Recommended dietary adjustments 
 - Ayurvedic justification
-Sources: Clinical Ayurvedic case studies, practitioner input, public health datasets.
+Sources: Clinical Ayurvedic case studies, doctor input, public health datasets.
 
 Summary:
 The system will rely on a multi-layered dataset architecture: 

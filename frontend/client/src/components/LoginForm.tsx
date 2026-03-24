@@ -321,7 +321,7 @@ export default function LoginForm({ userType = "patient" }: LoginFormProps) {
                       ? () => setLocation("/patient/register")
                       : userType === "doctor"
                         ? () => setLocation("/doctor/register")
-                        : undefined
+                        : () => setLocation("/admin/register")
                   }
                 >
                   <RoleIcon className="h-4 w-4 mr-2" />

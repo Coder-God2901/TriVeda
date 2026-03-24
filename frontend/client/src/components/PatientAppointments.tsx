@@ -106,8 +106,15 @@ function formatTimeLabel(time24: string) {
   return `${hour}:${String(m).padStart(2, "0")} ${period}`;
 }
 
+function toDateInputValue(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function PatientAppointments() {
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   const [diagnosis, setDiagnosis] = useState("");
   const [symptoms, setSymptoms] = useState("");
@@ -115,16 +122,16 @@ function PatientAppointments() {
   const [severity, setSeverity] = useState<"mild" | "moderate" | "severe">("moderate");
 
   const [doctorCategory, setDoctorCategory] = useState<DoctorCategory | "">("");
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
+  const [autoAssignedDoctorId, setAutoAssignedDoctorId] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [consultationMode, setConsultationMode] = useState<"clinic" | "video">("clinic");
 
-  const [patientName, setPatientName] = useState("");
-  const [patientAge, setPatientAge] = useState("");
-  const [patientGender, setPatientGender] = useState("");
-  const [currentMedications, setCurrentMedications] = useState("");
-  const [allergies, setAllergies] = useState("");
-  const [medicalHistory, setMedicalHistory] = useState("");
   const [additionalNotes, setAdditionalNotes] = useState("");
 
   const [bookings, setBookings] = useState<AppointmentBooking[]>(() => getStoredAppointments());
@@ -135,54 +142,100 @@ function PatientAppointments() {
     return new Date(selectedDate).toLocaleDateString("en-US", { weekday: "long" });
   }, [selectedDate]);
 
+  const categoryDoctors = useMemo(() => {
+    if (!doctorCategory) return [];
+    return doctorPool.filter((doctor) => doctor.department === doctorCategory);
+  }, [doctorCategory]);
+
+  const selectedDoctor = useMemo(() => {
+    const doctorId = selectedDoctorId ?? autoAssignedDoctorId;
+    if (!doctorId) return null;
+    return doctorPool.find((doctor) => doctor.id === doctorId) || null;
+  }, [selectedDoctorId, autoAssignedDoctorId]);
+
   const availableSlots = useMemo(() => {
-    if (!doctorCategory || !dayName) return [];
+    if (!selectedDoctor || !dayName) return [];
+    return [...(selectedDoctor.availability[dayName] || [])].sort();
+  }, [selectedDoctor, dayName]);
 
-    const unique = new Set<string>();
-    doctorPool
-      .filter((doctor) => doctor.department === doctorCategory)
-      .forEach((doctor) => {
-        (doctor.availability[dayName] || []).forEach((slot) => unique.add(slot));
-      });
+  const calendarCells = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startOffset = firstDay.getDay();
 
-    return Array.from(unique).sort();
-  }, [doctorCategory, dayName]);
+    const cells: Array<Date | null> = [];
+    for (let index = 0; index < startOffset; index += 1) cells.push(null);
+    for (let day = 1; day <= lastDay.getDate(); day += 1) {
+      cells.push(new Date(year, month, day));
+    }
 
-  const aiAssignedDoctor = useMemo(() => {
-    if (!doctorCategory || !selectedTime || !dayName) return null;
+    return cells;
+  }, [calendarMonth]);
 
-    const candidates = doctorPool
-      .filter((doctor) => doctor.department === doctorCategory)
-      .filter((doctor) => (doctor.availability[dayName] || []).includes(selectedTime));
+  const getSlotsForDate = (date: Date) => {
+    if (!selectedDoctor) return [];
+    const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
+    return selectedDoctor.availability[weekday] || [];
+  };
 
-    if (candidates.length === 0) return null;
-
-    const sorted = [...candidates].sort((a, b) => b.experience - a.experience);
-    if (severity === "severe") return sorted[0];
-    if (severity === "mild") return sorted[sorted.length - 1] || sorted[0];
-
-    return sorted[Math.floor(sorted.length / 2)] || sorted[0];
-  }, [doctorCategory, selectedTime, dayName, severity]);
+  const isDateSelectable = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (date < today) return false;
+    return getSlotsForDate(date).length > 0;
+  };
 
   const stepTitles: Record<number, string> = {
     1: "Diagnosis",
     2: "Doctor Category",
     3: "Available Time Slots",
-    4: "Patient Details",
-    5: "Assigning Doctor",
-    6: "Downloadable PDF",
+    4: "Assigning Doctor",
+    5: "Downloadable PDF",
   };
 
   const detectCategory = () => {
     if (!diagnosis.trim() && !symptoms.trim()) return;
     const inferred = inferDoctorCategory(`${diagnosis} ${symptoms}`);
     setDoctorCategory(inferred);
+    setSelectedDoctorId(null);
+    setAutoAssignedDoctorId(null);
+    setSelectedDate("");
+    setSelectedTime("");
     setStep(2);
   };
 
+  const handleAutoAssignDoctor = () => {
+    if (!doctorCategory) return;
+
+    const candidates = doctorPool.filter((doctor) => doctor.department === doctorCategory);
+    if (candidates.length === 0) return;
+
+    const sorted = [...candidates].sort((a, b) => b.experience - a.experience);
+    const assigned =
+      severity === "severe"
+        ? sorted[0]
+        : severity === "mild"
+          ? sorted[sorted.length - 1] || sorted[0]
+          : sorted[Math.floor(sorted.length / 2)] || sorted[0];
+
+    setAutoAssignedDoctorId(assigned.id);
+    setSelectedDoctorId(null);
+    setSelectedDate("");
+    setSelectedTime("");
+    setStep(3);
+  };
+
+  const handleSelectDoctor = (doctorId: number) => {
+    setSelectedDoctorId(doctorId);
+    setAutoAssignedDoctorId(null);
+    setSelectedDate("");
+    setSelectedTime("");
+  };
+
   const handleConfirmBooking = () => {
-    if (!doctorCategory || !selectedDate || !selectedTime || !aiAssignedDoctor) return;
-    if (!patientName || !patientAge || !patientGender) return;
+    if (!doctorCategory || !selectedDate || !selectedTime || !selectedDoctor) return;
 
     const booking: AppointmentBooking = {
       id: String(Date.now()),
@@ -196,19 +249,19 @@ function PatientAppointments() {
       selectedDate,
       selectedTime: formatTimeLabel(selectedTime),
       consultationMode,
-      patientName,
-      patientAge,
-      patientGender,
-      currentMedications,
-      allergies,
-      medicalHistory,
+      patientName: "Patient User",
+      patientAge: "-",
+      patientGender: "-",
+      currentMedications: "",
+      allergies: "",
+      medicalHistory: "",
       additionalNotes,
       assignedDoctor: {
-        id: aiAssignedDoctor.id,
-        name: aiAssignedDoctor.name,
-        department: categoryLabelMap[aiAssignedDoctor.department],
-        experience: aiAssignedDoctor.experience,
-        clinic: aiAssignedDoctor.clinic,
+        id: selectedDoctor.id,
+        name: selectedDoctor.name,
+        department: categoryLabelMap[selectedDoctor.department],
+        experience: selectedDoctor.experience,
+        clinic: selectedDoctor.clinic,
       },
       status: "confirmed",
     };
@@ -216,7 +269,7 @@ function PatientAppointments() {
     saveStoredAppointment(booking);
     setConfirmedBooking(booking);
     setBookings(getStoredAppointments());
-    setStep(6);
+    setStep(5);
   };
 
   return (
@@ -236,7 +289,7 @@ function PatientAppointments() {
 
         <div className="mb-8">
           <div className="flex flex-wrap items-center justify-start sm:justify-center gap-2 sm:gap-3">
-            {[1, 2, 3, 4, 5, 6].map((current) => (
+            {[1, 2, 3, 4, 5].map((current) => (
               <React.Fragment key={current}>
                 <div className="flex items-center gap-2">
                   <div
@@ -250,7 +303,7 @@ function PatientAppointments() {
                     {stepTitles[current]}
                   </span>
                 </div>
-                {current < 6 && <ChevronRight className="hidden sm:block w-4 h-4 text-gray-400" />}
+                {current < 5 && <ChevronRight className="hidden sm:block w-4 h-4 text-gray-400" />}
               </React.Fragment>
             ))}
           </div>
@@ -328,11 +381,46 @@ function PatientAppointments() {
                       <p className="text-sm text-gray-600 mb-1">Auto-detected category</p>
                       <p className="text-lg font-semibold text-emerald-800">{doctorCategory ? categoryLabelMap[doctorCategory] : "Not detected"}</p>
                     </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">Available doctors in this category</p>
+                      {categoryDoctors.length === 0 ? (
+                        <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800">
+                          No doctors available in this category right now.
+                        </div>
+                      ) : (
+                        <div className="grid gap-3">
+                          {categoryDoctors.map((doctor) => {
+                            const isSelected = selectedDoctorId === doctor.id;
+                            return (
+                              <button
+                                key={doctor.id}
+                                type="button"
+                                onClick={() => handleSelectDoctor(doctor.id)}
+                                className={`w-full rounded-xl border p-3 text-left transition ${
+                                  isSelected
+                                    ? "border-emerald-500 bg-emerald-50"
+                                    : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/40"
+                                }`}
+                              >
+                                <p className="font-semibold text-gray-900">{doctor.name}</p>
+                                <p className="text-sm text-gray-600">{doctor.experience} years • {doctor.clinic}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Change category (if needed)</label>
                       <select
                         value={doctorCategory}
-                        onChange={(e) => setDoctorCategory(e.target.value as DoctorCategory)}
+                        onChange={(e) => {
+                          setDoctorCategory(e.target.value as DoctorCategory);
+                          setSelectedDoctorId(null);
+                          setAutoAssignedDoctorId(null);
+                          setSelectedDate("");
+                          setSelectedTime("");
+                        }}
                         className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500"
                       >
                         {Object.entries(categoryLabelMap).map(([value, label]) => (
@@ -344,11 +432,19 @@ function PatientAppointments() {
                       <button type="button" onClick={() => setStep(1)} className="px-5 py-2 border rounded-lg">Back</button>
                       <button
                         type="button"
-                        onClick={() => setStep(3)}
-                        disabled={!doctorCategory}
+                        onClick={handleAutoAssignDoctor}
+                        disabled={!doctorCategory || categoryDoctors.length === 0}
                         className="flex-1 py-2 bg-emerald-500 text-white rounded-lg disabled:opacity-50"
                       >
-                        Continue to Time Slots
+                        Assign Doctor
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStep(3)}
+                        disabled={!selectedDoctorId}
+                        className="flex-1 py-2 bg-gradient-to-r from-[#1F5C3F] to-emerald-700 text-white rounded-lg disabled:opacity-50"
+                      >
+                        Continue with Selected Doctor
                       </button>
                     </div>
                   </>
@@ -356,18 +452,93 @@ function PatientAppointments() {
 
                 {step === 3 && (
                   <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Select date *</label>
-                      <input
-                        type="date"
-                        min={new Date().toISOString().split("T")[0]}
-                        value={selectedDate}
-                        onChange={(e) => {
-                          setSelectedDate(e.target.value);
-                          setSelectedTime("");
-                        }}
-                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500"
-                      />
+                    <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
+                      <p className="text-sm text-gray-600">Selected doctor</p>
+                      <p className="text-lg font-semibold text-emerald-800">{selectedDoctor?.name || "No doctor selected"}</p>
+                      {selectedDoctor && (
+                        <p className="text-sm text-gray-600">{selectedDoctor.experience} years • {selectedDoctor.clinic}</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-700">Pick a date from calendar</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCalendarMonth(
+                                (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1),
+                              )
+                            }
+                            className="px-3 py-1.5 border rounded-lg text-sm"
+                          >
+                            Prev
+                          </button>
+                          <p className="min-w-[140px] text-center text-sm font-semibold text-gray-800">
+                            {calendarMonth.toLocaleDateString("en-US", {
+                              month: "long",
+                              year: "numeric",
+                            })}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCalendarMonth(
+                                (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1),
+                              )
+                            }
+                            className="px-3 py-1.5 border rounded-lg text-sm"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-2 text-xs sm:text-sm">
+                        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((weekday) => (
+                          <div key={weekday} className="text-center font-semibold text-gray-500">
+                            {weekday}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-2">
+                        {calendarCells.map((dateCell, index) => {
+                          if (!dateCell) {
+                            return <div key={`empty-${index}`} className="h-20 rounded-lg bg-gray-50" />;
+                          }
+
+                          const slots = getSlotsForDate(dateCell);
+                          const selectable = isDateSelectable(dateCell);
+                          const dateValue = toDateInputValue(dateCell);
+                          const isSelected = selectedDate === dateValue;
+
+                          return (
+                            <button
+                              key={dateValue}
+                              type="button"
+                              disabled={!selectable}
+                              onClick={() => {
+                                setSelectedDate(dateValue);
+                                setSelectedTime("");
+                              }}
+                              className={`h-20 rounded-lg border p-2 text-left transition ${
+                                isSelected
+                                  ? "border-emerald-500 bg-emerald-100"
+                                  : selectable
+                                    ? "border-emerald-200 bg-emerald-50 hover:border-emerald-400"
+                                    : "border-gray-200 bg-gray-50 text-gray-400"
+                              }`}
+                            >
+                              <p className="text-xs font-semibold">{dateCell.getDate()}</p>
+                              <p className="mt-1 text-[11px]">
+                                {slots.length > 0 ? `${slots.length} slots` : "Unavailable"}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     {selectedDate && (
@@ -375,7 +546,7 @@ function PatientAppointments() {
                         <p className="text-sm text-gray-600">Available slots for {dayName}</p>
                         {availableSlots.length === 0 ? (
                           <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm">
-                            No slots available for this day in selected category. Please choose another date.
+                            No slots available on this date. Please pick another available day.
                           </div>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
@@ -407,7 +578,7 @@ function PatientAppointments() {
                         disabled={!selectedDate || !selectedTime}
                         className="flex-1 py-2 bg-emerald-500 text-white rounded-lg disabled:opacity-50"
                       >
-                        Continue to Patient Details
+                        Continue to Assigning Doctor
                       </button>
                     </div>
                   </>
@@ -415,51 +586,39 @@ function PatientAppointments() {
 
                 {step === 4 && (
                   <>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Patient name *</label>
-                        <input value={patientName} onChange={(e) => setPatientName(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Age *</label>
-                        <input value={patientAge} onChange={(e) => setPatientAge(e.target.value)} type="number" min="1" max="120" className="w-full p-3 border border-gray-200 rounded-lg" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Gender *</label>
-                        <select value={patientGender} onChange={(e) => setPatientGender(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg">
-                          <option value="">Select</option>
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Consultation mode *</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <button type="button" onClick={() => setConsultationMode("clinic")} className={`py-2 border rounded-lg ${consultationMode === "clinic" ? "bg-emerald-500 text-white border-emerald-500" : "border-gray-200"}`}>
-                            <MapPin className="w-4 h-4 inline mr-1" /> In-Clinic
-                          </button>
-                          <button type="button" onClick={() => setConsultationMode("video")} className={`py-2 border rounded-lg ${consultationMode === "video" ? "bg-emerald-500 text-white border-emerald-500" : "border-gray-200"}`}>
-                            <Video className="w-4 h-4 inline mr-1" /> Video
-                          </button>
+                    <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
+                      <p className="text-sm text-blue-800">
+                        Doctor is assigned from your manual selection or smart assignment, based on severity and category.
+                      </p>
+                    </div>
+
+                    {selectedDoctor ? (
+                      <div className="p-5 rounded-xl border border-emerald-200 bg-emerald-50">
+                        <h3 className="text-lg font-semibold text-emerald-800 mb-2">Assigned Doctor</h3>
+                        <p className="font-semibold text-gray-900">{selectedDoctor.name}</p>
+                        <p className="text-sm text-gray-700">{categoryLabelMap[selectedDoctor.department]} • {selectedDoctor.experience} years</p>
+                        <p className="text-sm text-gray-600">{selectedDoctor.clinic}</p>
+                        <div className="mt-3 text-sm text-gray-700 space-y-1">
+                          <p><span className="font-medium">Date:</span> {selectedDate}</p>
+                          <p><span className="font-medium">Time:</span> {formatTimeLabel(selectedTime)}</p>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Current medications</label>
-                        <textarea value={currentMedications} onChange={(e) => setCurrentMedications(e.target.value)} rows={3} className="w-full p-3 border border-gray-200 rounded-lg" placeholder="Medicine name, dose, frequency" />
+                    ) : (
+                      <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-800">
+                        No doctor is available for the selected slot. Please go back and select another doctor/date.
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Allergies history</label>
-                        <textarea value={allergies} onChange={(e) => setAllergies(e.target.value)} rows={3} className="w-full p-3 border border-gray-200 rounded-lg" placeholder="Drug, food, seasonal allergies" />
-                      </div>
-                    </div>
+                    )}
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Medical history and other details</label>
-                      <textarea value={medicalHistory} onChange={(e) => setMedicalHistory(e.target.value)} rows={3} className="w-full p-3 border border-gray-200 rounded-lg" placeholder="Past diagnosis, surgeries, chronic history" />
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Consultation mode *</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button type="button" onClick={() => setConsultationMode("clinic")} className={`py-2 border rounded-lg ${consultationMode === "clinic" ? "bg-emerald-500 text-white border-emerald-500" : "border-gray-200"}`}>
+                          <MapPin className="w-4 h-4 inline mr-1" /> In-Clinic
+                        </button>
+                        <button type="button" onClick={() => setConsultationMode("video")} className={`py-2 border rounded-lg ${consultationMode === "video" ? "bg-emerald-500 text-white border-emerald-500" : "border-gray-200"}`}>
+                          <Video className="w-4 h-4 inline mr-1" /> Video
+                        </button>
+                      </div>
                     </div>
 
                     <div>
@@ -471,49 +630,9 @@ function PatientAppointments() {
                       <button type="button" onClick={() => setStep(3)} className="px-5 py-2 border rounded-lg">Back</button>
                       <button
                         type="button"
-                        onClick={() => setStep(5)}
-                        disabled={!patientName || !patientAge || !patientGender}
-                        className="flex-1 py-2 bg-emerald-500 text-white rounded-lg disabled:opacity-50"
-                      >
-                        Continue to AI Assignment
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {step === 5 && (
-                  <>
-                    <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
-                      <p className="text-sm text-blue-800">
-                        AI assignment placeholder: final AI model will rank doctors by specialty match, severity, slot availability, and follow-up history.
-                      </p>
-                    </div>
-
-                    {aiAssignedDoctor ? (
-                      <div className="p-5 rounded-xl border border-emerald-200 bg-emerald-50">
-                        <h3 className="text-lg font-semibold text-emerald-800 mb-2">Assigned Doctor</h3>
-                        <p className="font-semibold text-gray-900">{aiAssignedDoctor.name}</p>
-                        <p className="text-sm text-gray-700">{categoryLabelMap[aiAssignedDoctor.department]} • {aiAssignedDoctor.experience} years</p>
-                        <p className="text-sm text-gray-600">{aiAssignedDoctor.clinic}</p>
-                        <div className="mt-3 text-sm text-gray-700 space-y-1">
-                          <p><span className="font-medium">Date:</span> {selectedDate}</p>
-                          <p><span className="font-medium">Time:</span> {formatTimeLabel(selectedTime)}</p>
-                          <p><span className="font-medium">Patient:</span> {patientName}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-800">
-                        No doctor is available for the selected slot. Please go back and select another time.
-                      </div>
-                    )}
-
-                    <div className="flex gap-3">
-                      <button type="button" onClick={() => setStep(4)} className="px-5 py-2 border rounded-lg">Back</button>
-                      <button
-                        type="button"
                         onClick={handleConfirmBooking}
-                        disabled={!aiAssignedDoctor}
-                        className="flex-1 py-2 bg-gradient-to-r from-emerald-500 to-[#10B981] text-white rounded-lg disabled:opacity-50"
+                        disabled={!selectedDoctor}
+                        className="flex-1 py-2 bg-emerald-500 text-white rounded-lg disabled:opacity-50"
                       >
                         Confirm Appointment
                       </button>
@@ -521,7 +640,7 @@ function PatientAppointments() {
                   </>
                 )}
 
-                {step === 6 && confirmedBooking && (
+                {step === 5 && confirmedBooking && (
                   <>
                     <div className="p-4 rounded-xl border border-green-200 bg-green-50">
                       <div className="flex items-center gap-2 text-green-700 font-semibold mb-2">

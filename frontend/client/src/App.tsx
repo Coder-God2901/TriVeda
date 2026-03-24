@@ -33,6 +33,7 @@ import DietChartGenerator from "./components/DietChartGenerator";
 import Monitoring from "./components/Monitoring";
 import DoctorAppointmentsFlow from "./components/DoctorAppointmentsFlow";
 import AdminSettings from "./components/AdminSettings";
+import AdminRegistration from "./components/AdminRegistration";
 
 //
 // Route Wrappers (avoid inline functions in <Route>)
@@ -216,6 +217,7 @@ function Router() {
       />
 
       {/* Admin Routes */}
+      <Route path="/admin/register" component={() => <AdminRegistration />} />
       <Route path="/admin/dashboard" component={AdminDashboardPage} />
       <Route
         path="/admin/prakriti-finalization"

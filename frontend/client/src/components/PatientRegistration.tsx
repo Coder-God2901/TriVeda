@@ -3,13 +3,7 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { usePatientRegister } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 import {
   Leaf,
   ArrowRight,
@@ -41,6 +34,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useRef } from "react";
+import BrandLogo from "@/components/common/BrandLogo";
 
 interface PatientFormData {
   name: string;
@@ -88,8 +82,13 @@ export default function PatientRegistration({
   const [stepErrors, setStepErrors] = useState<Record<string, string>>({});
   const [showSuccess, setShowSuccess] = useState(false);
   const totalSteps = 4;
-  const progress = (currentStep / totalSteps) * 100;
   const formRef = useRef<HTMLDivElement>(null);
+  const steps = [
+    { id: 1, title: "Personal Information" },
+    { id: 2, title: "Physical Characteristics" },
+    { id: 3, title: "Health Goals" },
+    { id: 4, title: "Medical History" },
+  ];
 
   const validateCurrentStep = () => {
     const errors: Record<string, string> = {};
@@ -232,6 +231,10 @@ export default function PatientRegistration({
       setTimeout(() => {
         formRef.current?.scrollIntoView({ behavior: "smooth" });
       }, 100);
+    } else if (onNavigate) {
+      onNavigate("login");
+    } else {
+      setLocation("/login/patient");
     }
   };
 
@@ -638,139 +641,139 @@ export default function PatientRegistration({
     }
   };
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Animated Background Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 opacity-10 animate-pulse"></div>
-      {/* Decorative Elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 text-emerald-200/20 animate-bounce">
-          <Leaf size={40} />
-        </div>
-        <div className="absolute top-40 right-20 text-teal-300/20 animate-pulse">
-          <HeartPulse size={32} />
-        </div>
-        <div
-          className="absolute bottom-32 left-20 text-cyan-200/20 animate-bounce"
-          style={{ animationDelay: "1s" }}
-        >
-          <User size={36} />
-        </div>
-        <div
-          className="absolute bottom-20 right-10 text-emerald-300/20 animate-pulse"
-          style={{ animationDelay: "0.5s" }}
-        >
-          <Salad size={44} />
-        </div>
-      </div>
-      {/* Main Content */}
-      <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-        <Card className="w-full max-w-2xl backdrop-blur-sm bg-white/95 shadow-2xl border border-white/20 overflow-hidden animate-fade-in">
-          {/* Header with Gradient */}
-          <div className="bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600 p-6 text-white relative overflow-hidden">
-            <div className="absolute inset-0 bg-black/10"></div>
-            <div className="relative z-10">
-              <div className="flex items-center justify-center mb-4">
-                <div className="bg-white/20 backdrop-blur-sm rounded-full p-3 mr-3">
-                  <Leaf className="h-6 w-6 text-white" />
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
+        <Card className="overflow-hidden border border-primary/10 bg-card shadow-lg">
+          <div className="bg-gradient-to-r from-[#1F5C3F] to-[#10B981] px-6 py-7 text-white sm:px-8 sm:py-8">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <BrandLogo
+                  textClassName="text-2xl text-white"
+                  iconClassName="h-10 w-10"
+                />
+                <p className="mt-2 text-sm font-medium text-white/85">
+                  Complete your profile for personalized Ayurvedic care.
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-3 rounded-2xl bg-white/15 px-4 py-3 backdrop-blur-sm">
+                <div className="rounded-full bg-white/20 p-2.5">
+                  <User className="h-5 w-5" />
                 </div>
-                <div className="text-center">
-                  <h1 className="text-2xl font-bold tracking-wide">
-                    TrivedaCare
-                  </h1>
-                  <p className="text-xs text-white/80 font-medium">
-                    Ayurvedic Wellness Platform
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-white/80">
+                    Registration Progress
+                  </p>
+                  <p className="text-base font-semibold">
+                    Step {currentStep} of {totalSteps}
                   </p>
                 </div>
               </div>
-              <div className="text-center">
-                <div className="bg-white/15 backdrop-blur-sm rounded-full p-4 w-20 h-20 mx-auto mb-4 flex items-center justify-center">
-                  <User className="h-8 w-8 text-white" />
-                </div>
-                <h2 className="text-xl font-semibold mb-1">
-                  Sacred Patient Registration
-                </h2>
-                <p className="text-sm text-white/90 font-medium">
-                  Step {currentStep} of {totalSteps}: Complete your profile for
-                  personalized Ayurvedic care
-                </p>
-              </div>
-            </div>
-            {/* Decorative wave */}
-            <div className="absolute bottom-0 left-0 right-0 h-4">
-              <svg
-                viewBox="0 0 1200 120"
-                preserveAspectRatio="none"
-                className="w-full h-full"
-              >
-                <path
-                  d="M0,60 C300,120 900,0 1200,60 L1200,120 L0,120 Z"
-                  fill="white"
-                  opacity="0.1"
-                />
-              </svg>
             </div>
           </div>
-          <CardContent ref={formRef} className="p-8">
-            <Progress value={progress} className="w-full mt-2 mb-6" />
-            {showSuccess ? (
-              <div className="flex flex-col items-center justify-center min-h-[300px] animate-fade-in">
-                <CheckCircle2 className="w-16 h-16 text-emerald-600 mb-4 animate-bounce-in" />
-                <h2 className="text-xl font-semibold mb-2 text-emerald-700">
-                  Submitted for Assessment!
-                </h2>
-                <p className="text-base text-muted-foreground mb-4 text-center max-w-md">
-                  Thank you for completing your registration.
-                  <br />
-                  <span className="text-primary font-medium">
-                    You may now proceed to your Prakriti Assessment.
-                  </span>
-                </p>
-                <Button
-                  className="mt-2 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600 text-white font-semibold rounded-lg shadow-lg hover:opacity-90 hover:scale-[1.02] transition-all duration-300"
-                  variant="default"
-                  onClick={handleGoToAssessment}
-                  data-testid="button-proceed-assessment"
-                >
-                  <ArrowRight className="w-4 h-4 mr-2" /> Go to Assessment
-                </Button>
+
+          <div className="grid lg:grid-cols-[280px,1fr]">
+            <aside className="hidden border-r border-border/80 bg-muted/40 px-6 py-7 lg:block">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Your Journey
+              </h3>
+              <div className="mt-5 space-y-3">
+                {steps.map((step) => {
+                  const isActive = step.id === currentStep;
+                  const isCompleted = step.id < currentStep;
+
+                  return (
+                    <div
+                      key={step.id}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-3 transition-colors ${
+                        isActive
+                          ? "border-primary/30 bg-primary/10"
+                          : isCompleted
+                            ? "border-emerald-300/60 bg-emerald-50/70"
+                            : "border-border/70 bg-background/70"
+                      }`}
+                    >
+                      <div
+                        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                          isCompleted
+                            ? "bg-emerald-600 text-white"
+                            : isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : step.id}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{step.title}</p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            ) : (
-              <>
-                {renderStep()}
-                <div className="flex justify-between mt-8">
+
+              <div className="mt-6 rounded-xl border border-emerald-300/40 bg-emerald-50/70 p-4">
+                <p className="text-sm font-medium text-emerald-900">
+                  Tip: Use accurate details now to get better assessment and diet suggestions later.
+                </p>
+              </div>
+            </aside>
+
+            <CardContent ref={formRef} className="px-5 py-6 sm:px-8 sm:py-8">
+              {showSuccess ? (
+                <div className="flex min-h-[320px] flex-col items-center justify-center animate-fade-in text-center">
+                  <CheckCircle2 className="mb-4 h-14 w-14 text-emerald-600" />
+                  <h2 className="mb-2 text-2xl font-semibold text-emerald-700">
+                    Registration Complete
+                  </h2>
+                  <p className="mb-4 max-w-md text-base text-muted-foreground">
+                    Thank you for completing your profile. You can now continue to the Prakriti assessment.
+                  </p>
                   <Button
-                    variant="outline"
-                    onClick={handleBack}
-                    disabled={currentStep === 1}
-                    data-testid="button-back"
-                    className="flex items-center gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium"
+                    className="mt-2 rounded-lg bg-primary font-semibold text-primary-foreground shadow-md transition-all duration-300 hover:opacity-90"
+                    variant="default"
+                    onClick={handleGoToAssessment}
+                    data-testid="button-proceed-assessment"
                   >
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                  </Button>
-                  <Button
-                    onClick={handleNext}
-                    disabled={patientRegisterMutation.isPending}
-                    data-testid="button-next"
-                    className="flex items-center gap-2 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600 text-white font-semibold rounded-lg shadow-lg hover:opacity-90 hover:scale-[1.02] transition-all duration-300"
-                  >
-                    {currentStep === totalSteps ? (
-                      <>
-                        <CheckCircle2 className="h-4 w-4" />
-                        {patientRegisterMutation.isPending
-                          ? "Submitting..."
-                          : "Complete Registration"}
-                      </>
-                    ) : (
-                      <>
-                        Next <ArrowRight className="h-4 w-4" />
-                      </>
-                    )}
+                    <ArrowRight className="mr-2 h-4 w-4" /> Go to Assessment
                   </Button>
                 </div>
-              </>
-            )}
-          </CardContent>
+              ) : (
+                <>
+                  {renderStep()}
+                  <div className="mt-8 flex justify-between gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={handleBack}
+                      data-testid="button-back"
+                      className="flex items-center gap-2 rounded-lg border-primary/25 text-primary hover:bg-primary/5"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      {currentStep === 1 ? "Back to Login" : "Back"}
+                    </Button>
+                    <Button
+                      onClick={handleNext}
+                      disabled={patientRegisterMutation.isPending}
+                      data-testid="button-next"
+                      className="flex items-center gap-2 rounded-lg bg-primary font-semibold text-primary-foreground shadow-md transition-all duration-300 hover:opacity-90"
+                    >
+                      {currentStep === totalSteps ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4" />
+                          {patientRegisterMutation.isPending
+                            ? "Submitting..."
+                            : "Complete Registration"}
+                        </>
+                      ) : (
+                        <>
+                          Next <ArrowRight className="h-4 w-4" />
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </div>
         </Card>
       </div>
     </div>
