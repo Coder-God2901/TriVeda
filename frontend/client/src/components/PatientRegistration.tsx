@@ -680,9 +680,7 @@ export default function PatientRegistration({
                   Submitted for Assessment!
                 </h2>
                 <p className="text-base text-muted-foreground mb-4 text-center max-w-md">
-                  Thank you for completing your registration. Soon a
-                  Doctor will be assigned to you for the onboarding
-                  process.
+                  Thank you for completing your registration.
                   <br />
                   <span className="text-primary font-medium">
                     You may now proceed to your Prakriti Assessment.

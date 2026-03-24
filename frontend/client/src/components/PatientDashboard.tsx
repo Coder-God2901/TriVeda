@@ -1135,7 +1135,7 @@ export default function AyurvedicPatientDashboard() {
               <div className="p-6 text-center border-2 border-dashed border-gray-200 rounded-xl">
                 <p className="text-gray-500 mb-4">No upcoming appointments.</p>
                 <button
-                  onClick={() => setLocation("/patient/assessment")}
+                  onClick={() => setLocation("/patient/appointments")}
                   className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[#10B981] hover:bg-[#0D9488] text-white font-medium transition-colors"
                 >
                   Book Now
