@@ -60,6 +60,7 @@ import {
 } from "recharts";
 import GuidelineModal from "./GuidelineModal";
 import { useDoctorProfile } from "@/hooks/useProfile";
+import { useDoctorPatients } from "@/hooks/useDoctorPatients";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AppointmentBooking,
@@ -223,7 +224,9 @@ export default function DoctorDashboard({
       ? loggedInUser?.id || ""
       : "";
   const { data: doctorProfileData, isLoading: isDoctorProfileLoading } = useDoctorProfile(doctorId);
+  const { data: doctorPatientsData, isLoading: isDoctorPatientsLoading } = useDoctorPatients(doctorId);
   const doctorPayload: any = (doctorProfileData as any)?.data || doctorProfileData || {};
+  const patientsPayload: any = (doctorPatientsData as any)?.data || doctorPatientsData || [];
   const doctorDisplayName = doctorPayload?.name || loggedInUser?.name || "Doctor";
   const doctorSpecialty = doctorPayload?.doctorProfile?.specialty || "Ayurvedic Doctor";
 
@@ -288,10 +291,10 @@ export default function DoctorDashboard({
     // Here you would add logic to actually schedule the appointment
   };
   const [searchTerm, setSearchTerm] = useState("");
-  const [patients, setPatients] = useState([...mockPatients]);
-  const [selectedPatient, setSelectedPatient] = useState<
-    (typeof mockPatients)[0] | null
-  >(null);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<any | null>(
+    null
+  );
   const [tab, setTab] = useState<number>(0);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("name");
@@ -350,6 +353,12 @@ export default function DoctorDashboard({
   }, [patientId, patients]);
 
   useEffect(() => {
+    if (Array.isArray(patientsPayload) && patientsPayload.length > 0) {
+      setPatients(patientsPayload);
+    }
+  }, [patientsPayload]);
+
+  useEffect(() => {
     setSharedAppointments(getStoredAppointments());
 
     const syncSharedAppointments = () => setSharedAppointments(getStoredAppointments());
@@ -395,7 +404,7 @@ export default function DoctorDashboard({
       const matchesSearch =
         patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         patient.prakriti.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        patient.issues.some((issue) =>
+        patient.issues.some((issue: string) =>
           issue.toLowerCase().includes(searchTerm.toLowerCase())
         );
 
@@ -706,7 +715,7 @@ export default function DoctorDashboard({
               <div className="mb-6">
                 <h4 className="font-medium text-gray-900 mb-3">Primary Health Issues</h4>
                 <div className="flex flex-wrap gap-2">
-                  {selectedPatient.issues.map((issue, idx) => (
+                  {selectedPatient.issues.map((issue: string, idx: number) => (
                     <span
                       key={idx}
                       className="px-3 py-1 bg-emerald-100 text-[#1F5C3F] rounded-full text-sm border border-emerald-200"
@@ -722,7 +731,7 @@ export default function DoctorDashboard({
               <div className="mb-6">
                 <h4 className="font-medium text-gray-900 mb-3">Current Medications</h4>
                 <div className="space-y-3">
-                  {selectedPatient.medications.map((med, idx) => (
+                  {selectedPatient.medications.map((med: string, idx: number) => (
                     <div
                       key={idx}
                       className="flex items-center space-x-3 p-3 bg-emerald-50 rounded-lg"
@@ -794,6 +803,15 @@ export default function DoctorDashboard({
   }
 
   if (isDoctorProfileLoading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground p-6 space-y-4">
+        <Skeleton className="h-16 w-full rounded-xl" />
+        <Skeleton className="h-80 w-full rounded-xl" />
+      </div>
+    );
+  }
+
+  if (isDoctorPatientsLoading && patients.length === 0) {
     return (
       <div className="min-h-screen bg-background text-foreground p-6 space-y-4">
         <Skeleton className="h-16 w-full rounded-xl" />
@@ -1136,42 +1154,103 @@ export default function DoctorDashboard({
                 </button>
               </div>
 
-              {sharedAppointments.filter((appointment) => getAppointmentDateTime(appointment) >= new Date()).length === 0 ? (
+              {sharedAppointments.filter((appointment) => 
+                getAppointmentDateTime(appointment) >= new Date() && 
+                appointment.assignedDoctor?.id === doctorId
+              ).length === 0 ? (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-sm text-[#1F5C3F]">
-                  No upcoming patient-booked appointments found yet.
+                  No upcoming appointments assigned to you yet.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {sharedAppointments
-                    .filter((appointment) => getAppointmentDateTime(appointment) >= new Date())
+                    .filter((appointment) => 
+                      getAppointmentDateTime(appointment) >= new Date() && 
+                      appointment.assignedDoctor?.id === doctorId
+                    )
                     .sort(
                       (a, b) => getAppointmentDateTime(a).getTime() - getAppointmentDateTime(b).getTime()
                     )
-                    .map((appointment) => (
-                      <div key={appointment.id} className="bg-white border border-gray-200 rounded-xl p-5">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-semibold text-gray-900">{appointment.patientName}</p>
-                          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Approved</span>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-3">{appointment.bookingId}</p>
-
-                        <div className="space-y-2 text-sm text-gray-700">
-                          <p><Calendar className="w-4 h-4 inline mr-1 text-[#1F5C3F]" /> {appointment.selectedDate}</p>
-                          <p><Clock className="w-4 h-4 inline mr-1 text-[#1F5C3F]" /> {appointment.selectedTime}</p>
-                          <p><Stethoscope className="w-4 h-4 inline mr-1 text-[#1F5C3F]" /> {appointment.assignedDoctor.name}</p>
-                          <p><User className="w-4 h-4 inline mr-1 text-[#1F5C3F]" /> {appointment.patientAge}y, {appointment.patientGender}</p>
-                          <p><span className="font-medium">Category:</span> {categoryLabelMap[appointment.doctorCategory]}</p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => downloadAppointmentPdf(appointment)}
-                          className="mt-4 w-full py-2 border border-[#1F5C3F]/30 text-[#1F5C3F] rounded-lg text-sm font-medium hover:bg-[#1F5C3F]/5"
+                    .map((appointment) => {
+                      const isStarted = isAppointmentStarted(appointment);
+                      const isOngoing = isAppointmentOngoing(appointment);
+                      
+                      return (
+                        <div 
+                          key={appointment.id} 
+                          className="bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-xl p-5 hover:shadow-lg transition-shadow h-full group"
                         >
-                          <Download className="w-4 h-4 inline mr-1" /> Download PDF
-                        </button>
-                      </div>
-                    ))}
+                          {/* Header with Name and Status */}
+                          <div className="flex items-start justify-between gap-3 mb-4">
+                            <div className="flex items-start gap-3 flex-1 min-w-0">
+                              <div className="w-10 h-10 bg-gradient-to-br from-[#1F5C3F] to-[#10B981] rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0">
+                                {appointment.patientName[0]}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-gray-900 group-hover:text-[#10B981] transition-colors line-clamp-2">
+                                  {appointment.patientName}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">{appointment.bookingId}</p>
+                              </div>
+                            </div>
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
+                              isOngoing 
+                                ? "bg-green-100 text-green-700 border border-green-200" 
+                                : isStarted
+                                ? "bg-orange-100 text-orange-700 border border-orange-200"
+                                : "bg-blue-100 text-blue-700 border border-blue-200"
+                            }`}>
+                              {isOngoing ? "Ongoing" : isStarted ? "Started" : "Scheduled"}
+                            </span>
+                          </div>
+
+                          {/* Details Grid */}
+                          <div className="space-y-3 mb-4">
+                            <div className="flex items-center gap-2 text-sm text-gray-700">
+                              <Calendar className="w-4 h-4 text-[#1F5C3F] shrink-0" />
+                              <span className="font-medium">{appointment.selectedDate}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-700">
+                              <Clock className="w-4 h-4 text-[#1F5C3F] shrink-0" />
+                              <span className="font-medium">{appointment.selectedTime}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-700">
+                              <Stethoscope className="w-4 h-4 text-[#1F5C3F] shrink-0" />
+                              <span className="font-medium">{appointment.assignedDoctor.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-700">
+                              <User className="w-4 h-4 text-[#1F5C3F] shrink-0" />
+                              <span>{appointment.patientAge} years, {appointment.patientGender}</span>
+                            </div>
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                              <p className="text-xs font-medium text-[#1F5C3F]">
+                                {categoryLabelMap[appointment.doctorCategory] || "General Consultation"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="pt-4 border-t border-gray-200 space-y-2">
+                            <button
+                              type="button"
+                              onClick={() => downloadAppointmentPdf(appointment)}
+                              className="w-full py-2 px-3 border border-[#1F5C3F]/30 text-[#1F5C3F] rounded-lg text-sm font-medium hover:bg-[#1F5C3F]/5 transition-colors flex items-center justify-center gap-2"
+                            >
+                              <Download className="w-4 h-4" /> Download PDF
+                            </button>
+                            {isOngoing && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedAppointmentId(appointment.id)}
+                                className="w-full py-2 px-3 bg-gradient-to-r from-[#1F5C3F] to-[#10B981] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                              >
+                                <Video className="w-4 h-4" /> Start Consultation
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -1240,7 +1319,7 @@ export default function DoctorDashboard({
                     </div>
                     {/* Issues */}
                     <div className="mt-4 flex flex-wrap gap-2 min-h-[96px] max-h-[96px] content-start overflow-hidden">
-                      {patient.issues.map((issue, idx) => (
+                      {patient.issues.map((issue: string, idx: number) => (
                         <span
                           key={idx}
                           className="px-2 py-1 bg-emerald-100 text-[#1F5C3F] rounded-full text-xs border border-emerald-200"
