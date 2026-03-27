@@ -1,0 +1,1015 @@
+import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Activity,
+  AlertTriangle,
+  Calendar,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Mail,
+  MapPin,
+  MessageCircle,
+  Monitor,
+  Phone,
+  Pill,
+  Plus,
+  Stethoscope,
+  Trash2,
+  User,
+  Utensils,
+  Video,
+  Wind,
+  Flame,
+  Droplets,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useSaveDoctorPlan } from "@/hooks/useAppointments";
+import { useTreatmentCatalogs } from "@/hooks/useTreatmentCatalogs";
+import type {
+  AsanaCatalogItem,
+  FoodCatalogItem,
+  MedicineCatalogItem,
+} from "@/api/catalog.api";
+
+export type AssessmentAnswer = {
+  question: string;
+  answer: string;
+};
+
+type MedicineDraft = {
+  id: string;
+  name: string;
+  dosage: string;
+  timing: string;
+  notes: string;
+};
+
+interface ActiveConsultationWizardProps {
+  appointmentId?: string | null;
+  patientName: string;
+  prakritiScores?: {
+    vata?: number;
+    pitta?: number;
+    kapha?: number;
+  };
+  patientProfileSummary?: {
+    age?: number;
+    gender?: string;
+    prakriti?: string;
+    priority?: string;
+    email?: string;
+    phone?: string;
+    location?: string;
+    issues?: string[];
+    compliance?: number;
+  };
+  patientAssessmentAnswers: AssessmentAnswer[];
+  initialDiagnosis?: {
+    finalPrakriti?: string;
+    finalVikriti?: string;
+    chiefComplaint?: string;
+  };
+  onFinalizeSuccess?: () => void;
+}
+
+const steps = [
+  { id: 1, label: "Diagnosis" },
+  { id: 2, label: "Diet (Optional)" },
+  { id: 3, label: "Lifestyle (Optional)" },
+  { id: 4, label: "Medicines & Finalize" },
+] as const;
+
+export default function ActiveConsultationWizard({
+  appointmentId,
+  patientName,
+  prakritiScores,
+  patientProfileSummary,
+  patientAssessmentAnswers,
+  initialDiagnosis,
+  onFinalizeSuccess,
+}: ActiveConsultationWizardProps) {
+  const [currentStep, setCurrentStep] = useState(1);
+
+  const [consultationData, setConsultationData] = useState(() => ({
+    diagnosis: {
+      finalPrakriti: initialDiagnosis?.finalPrakriti || "",
+      finalVikriti: initialDiagnosis?.finalVikriti || "",
+      chiefComplaint: initialDiagnosis?.chiefComplaint || "",
+    },
+    diet: {
+      include: true,
+      items: "",
+      pathya: "",
+      apathya: "",
+    },
+    lifestyle: {
+      include: true,
+      asanas: "",
+      sleepSchedule: "",
+      rules: "",
+    },
+    medicines: [
+      {
+        id: `med-${Date.now()}`,
+        name: "",
+        dosage: "",
+        timing: "",
+        notes: "",
+      },
+    ] as MedicineDraft[],
+  }));
+
+  const [dietQuickSearch, setDietQuickSearch] = useState("");
+  const [asanaQuickSearch, setAsanaQuickSearch] = useState("");
+  const [medicineQuickSearch, setMedicineQuickSearch] = useState("");
+
+  const saveDoctorPlanMutation = useSaveDoctorPlan();
+  const { data: treatmentCatalogData } = useTreatmentCatalogs();
+  const treatmentCatalogPayload: any = treatmentCatalogData || {};
+  const foodCatalog: FoodCatalogItem[] = Array.isArray(treatmentCatalogPayload?.foods)
+    ? treatmentCatalogPayload.foods
+    : [];
+  const asanaCatalog: AsanaCatalogItem[] = Array.isArray(treatmentCatalogPayload?.asanas)
+    ? treatmentCatalogPayload.asanas
+    : [];
+  const medicineCatalog: MedicineCatalogItem[] = Array.isArray(treatmentCatalogPayload?.medicines)
+    ? treatmentCatalogPayload.medicines
+    : [];
+
+  const filteredFoods = foodCatalog.filter((food) =>
+    food.name.toLowerCase().includes(dietQuickSearch.toLowerCase())
+  );
+  const filteredAsanas = asanaCatalog.filter((asana) =>
+    asana.name.toLowerCase().includes(asanaQuickSearch.toLowerCase())
+  );
+  const filteredMedicines = medicineCatalog.filter((medicine) =>
+    medicine.medicineName.toLowerCase().includes(medicineQuickSearch.toLowerCase())
+  );
+
+  const canGoNextFromDiagnosis =
+    consultationData.diagnosis.finalPrakriti.trim().length > 0 &&
+    consultationData.diagnosis.finalVikriti.trim().length > 0;
+
+  const vataScore = Number(prakritiScores?.vata || 0);
+  const pittaScore = Number(prakritiScores?.pitta || 0);
+  const kaphaScore = Number(prakritiScores?.kapha || 0);
+  const totalPrakritiScore = Math.max(vataScore + pittaScore + kaphaScore, 1);
+  const vataPercent = Math.round((vataScore / totalPrakritiScore) * 100);
+  const pittaPercent = Math.round((pittaScore / totalPrakritiScore) * 100);
+  const kaphaPercent = Math.round((kaphaScore / totalPrakritiScore) * 100);
+
+  const progressValue = useMemo(() => (currentStep / 4) * 100, [currentStep]);
+
+  const goNext = () => {
+    if (currentStep === 1 && !canGoNextFromDiagnosis) return;
+    setCurrentStep((previous) => Math.min(4, previous + 1));
+  };
+
+  const goBack = () => {
+    if (currentStep === 1) {
+      window.location.href = "/doctor/dashboard";
+      return;
+    }
+
+    setCurrentStep((previous) => Math.max(1, previous - 1));
+  };
+
+  const skipStep = (step: 2 | 3) => {
+    if (step === 2) {
+      setConsultationData((previous) => ({
+        ...previous,
+        diet: {
+          ...previous.diet,
+          include: false,
+        },
+      }));
+      setCurrentStep(3);
+      return;
+    }
+
+    setConsultationData((previous) => ({
+      ...previous,
+      lifestyle: {
+        ...previous.lifestyle,
+        include: false,
+      },
+    }));
+    setCurrentStep(4);
+  };
+
+  const addMedicine = () => {
+    setConsultationData((previous) => ({
+      ...previous,
+      medicines: [
+        ...previous.medicines,
+        {
+          id: `med-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: "",
+          dosage: "",
+          timing: "",
+          notes: "",
+        },
+      ],
+    }));
+  };
+
+  const addMedicineFromCatalog = (medicine: MedicineCatalogItem) => {
+    setConsultationData((previous) => ({
+      ...previous,
+      medicines: [
+        ...previous.medicines,
+        {
+          id: `med-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: medicine.medicineName,
+          dosage: "",
+          timing: "",
+          notes: medicine.medicineType || "",
+        },
+      ],
+    }));
+  };
+
+  const removeMedicine = (id: string) => {
+    setConsultationData((previous) => ({
+      ...previous,
+      medicines:
+        previous.medicines.length > 1
+          ? previous.medicines.filter((medicine) => medicine.id !== id)
+          : previous.medicines,
+    }));
+  };
+
+  const updateMedicine = (id: string, key: keyof MedicineDraft, value: string) => {
+    setConsultationData((previous) => ({
+      ...previous,
+      medicines: previous.medicines.map((medicine) =>
+        medicine.id === id
+          ? {
+              ...medicine,
+              [key]: value,
+            }
+          : medicine
+      ),
+    }));
+  };
+
+  const addFoodLine = (food: FoodCatalogItem) => {
+    const line = `- ${food.name}`;
+    setConsultationData((previous) => ({
+      ...previous,
+      diet: {
+        ...previous.diet,
+        include: true,
+        items: previous.diet.items.trim() ? `${previous.diet.items}\n${line}` : line,
+      },
+    }));
+  };
+
+  const addAsanaLine = (asana: AsanaCatalogItem) => {
+    setConsultationData((previous) => ({
+      ...previous,
+      lifestyle: {
+        ...previous.lifestyle,
+        include: true,
+        asanas: previous.lifestyle.asanas.trim()
+          ? `${previous.lifestyle.asanas}\n${asana.name}`
+          : asana.name,
+      },
+    }));
+  };
+
+  const finalizeTreatmentPlan = async () => {
+    if (!appointmentId) return;
+
+    const medications = consultationData.medicines
+      .filter(
+        (medicine) =>
+          medicine.name.trim() ||
+          medicine.dosage.trim() ||
+          medicine.timing.trim() ||
+          medicine.notes.trim()
+      )
+      .map((medicine) => ({
+        name: medicine.name,
+        dosage: medicine.dosage,
+        timing: medicine.timing,
+        doctorNotes: medicine.notes,
+      }));
+
+    const payload = {
+      doctorNotes: consultationData.diagnosis.chiefComplaint,
+      diagnosis: {
+        finalPrakriti: consultationData.diagnosis.finalPrakriti,
+        finalVikriti: consultationData.diagnosis.finalVikriti,
+        chiefComplaint: consultationData.diagnosis.chiefComplaint,
+      },
+      dietChart: {
+        items: consultationData.diet.include
+          ? consultationData.diet.items
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [],
+        pathya: consultationData.diet.include
+          ? consultationData.diet.pathya
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [],
+        apathya: consultationData.diet.include
+          ? consultationData.diet.apathya
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [],
+      },
+      routinePlan: {
+        exercisesAndAsanas: consultationData.lifestyle.include
+          ? consultationData.lifestyle.asanas
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [],
+        mode: "manual",
+        sleepSchedule: consultationData.lifestyle.include
+          ? consultationData.lifestyle.sleepSchedule
+          : "",
+        therapy: consultationData.lifestyle.include
+          ? consultationData.lifestyle.rules
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : [],
+        tests: [],
+      },
+      medications,
+    };
+
+    await saveDoctorPlanMutation.mutateAsync({
+      appointmentId,
+      planData: payload,
+    });
+
+    if (onFinalizeSuccess) {
+      onFinalizeSuccess();
+    }
+  };
+
+  const avatarLetter = patientName?.trim()?.charAt(0)?.toUpperCase() || "P";
+
+  return (
+    <div className="space-y-4 pb-28">
+      <Card className="border-emerald-100 bg-gradient-to-r from-emerald-50 to-white">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg text-slate-900">Active Consultation Flow</CardTitle>
+          <div className="space-y-2">
+            <Progress value={progressValue} className="h-2" />
+            <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+              {steps.map((step) => (
+                <div
+                  key={step.id}
+                  className={`rounded-md border px-2 py-1 text-center font-medium ${
+                    currentStep === step.id
+                      ? "border-emerald-500 bg-emerald-100 text-emerald-800"
+                      : currentStep > step.id
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-600"
+                  }`}
+                >
+                  {step.id}. {step.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentStep}
+          initial={{ opacity: 0, x: 14 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -14 }}
+          transition={{ duration: 0.22 }}
+        >
+          {currentStep === 1 && (
+            <div className="space-y-4">
+              <Card className="border-slate-200">
+                <CardContent className="pt-6">
+                  <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#1F5C3F] to-emerald-500 text-xl font-semibold text-white">
+                        {avatarLetter}
+                      </div>
+                      <div>
+                        <h2 className="text-3xl font-bold text-slate-900">{patientName}</h2>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-[#1F5C3F]">
+                            {patientProfileSummary?.prakriti || "Not Assessed"}
+                          </span>
+                          <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
+                            {patientProfileSummary?.priority || "low"}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-600">
+                          {(patientProfileSummary?.age ?? "-")} years • {patientProfileSummary?.gender || "-"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" className="bg-[#1F5C3F] text-white hover:bg-[#184734]">
+                        <Video className="h-4 w-4" />
+                        Video Call
+                      </Button>
+                      <Button type="button" variant="outline" className="border-slate-300">
+                        <MessageCircle className="h-4 w-4" />
+                        Message
+                      </Button>
+                      <span className="inline-flex items-center rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                        View Mode
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-12">
+                    <div className="space-y-4 xl:col-span-4">
+                      <div className="rounded-xl bg-slate-50 p-4">
+                        <h3 className="mb-3 flex items-center text-base font-semibold text-slate-900">
+                          <User className="mr-2 h-4 w-4 text-[#1F5C3F]" />
+                          Patient Information
+                        </h3>
+                        <div className="space-y-3 text-sm text-slate-700">
+                          <div className="flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-slate-400" />
+                            <span>{patientProfileSummary?.email || "-"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Phone className="h-4 w-4 text-slate-400" />
+                            <span>{patientProfileSummary?.phone || "-"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4 text-slate-400" />
+                            <span>{patientProfileSummary?.location || "-"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-slate-400" />
+                            <span>Last Visit: -</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-slate-400" />
+                            <span>Next: -</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-red-200 bg-gradient-to-br from-red-50 to-white p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h3 className="flex items-center text-sm font-semibold text-slate-900">
+                            <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-red-100 text-red-700">
+                              <Monitor className="h-3.5 w-3.5" />
+                            </span>
+                            Vital Signs
+                          </h3>
+                          <span className="rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                            4 metrics
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {["Blood Pressure", "Pulse", "Weight", "Temp"].map((label) => (
+                            <div key={label} className="rounded-lg border border-red-100 bg-white p-2 text-center">
+                              <p className="text-lg font-semibold text-slate-900">-</p>
+                              <p className="text-[10px] text-slate-600">{label}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h3 className="flex items-center text-sm font-semibold text-slate-900">
+                            <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 text-amber-700">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                            </span>
+                            Allergies
+                          </h3>
+                          <span className="rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            1 reported
+                          </span>
+                        </div>
+                        <span className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs text-amber-800">
+                          Ladkiya
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="xl:col-span-8">
+                      <div className="rounded-xl border border-slate-200 p-4">
+                        <h3 className="mb-4 flex items-center text-lg font-semibold text-slate-900">
+                          <Stethoscope className="mr-2 h-5 w-5 text-[#1F5C3F]" />
+                          Health Issues & Treatment
+                        </h3>
+
+                        <div className="mb-4">
+                          <p className="mb-2 text-sm font-medium text-slate-900">Primary Health Goals</p>
+                          <div className="flex flex-wrap gap-2">
+                            {(patientProfileSummary?.issues || []).length > 0 ? (
+                              (patientProfileSummary?.issues || []).map((issue, index) => (
+                                <span key={`${issue}-${index}`} className="rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs text-[#1F5C3F]">
+                                  {issue}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-sm text-slate-500">No health goals added</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <hr className="my-4" />
+
+                        <div className="mb-4">
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-sm font-medium text-slate-900">Treatment Compliance</p>
+                            <p className="text-3xl font-bold text-[#1F5C3F]">{patientProfileSummary?.compliance ?? 0}%</p>
+                          </div>
+                          <div className="h-3 w-full rounded-full bg-slate-200">
+                            <div
+                              className="h-3 rounded-full bg-[#1F5C3F]"
+                              style={{ width: `${Math.max(0, Math.min(100, patientProfileSummary?.compliance ?? 0))}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-xs text-slate-600">Weekly compliance rate based on logged activities</p>
+                        </div>
+
+                        <div className="mb-4">
+                          <p className="mb-2 text-sm font-semibold text-slate-900">Prakriti Assessment</p>
+                          <div className="mb-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <p className="flex items-center gap-1 text-lg font-medium text-[#1F5C3F]">
+                                  <Wind className="h-4 w-4" /> Vata
+                                </p>
+                                <p className="text-2xl font-bold text-[#1F5C3F]">{vataScore}</p>
+                              </div>
+                              <div className="mb-1 h-2 w-full rounded-full bg-white">
+                                <div className="h-2 rounded-full bg-[#1F5C3F]" style={{ width: `${vataPercent}%` }} />
+                              </div>
+                              <p className="text-right text-sm font-medium text-slate-600">{vataPercent}%</p>
+                            </div>
+
+                            <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <p className="flex items-center gap-1 text-lg font-medium text-orange-700">
+                                  <Flame className="h-4 w-4" /> Pitta
+                                </p>
+                                <p className="text-2xl font-bold text-orange-700">{pittaScore}</p>
+                              </div>
+                              <div className="mb-1 h-2 w-full rounded-full bg-white">
+                                <div className="h-2 rounded-full bg-[#1F5C3F]" style={{ width: `${pittaPercent}%` }} />
+                              </div>
+                              <p className="text-right text-sm font-medium text-slate-600">{pittaPercent}%</p>
+                            </div>
+
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <p className="flex items-center gap-1 text-lg font-medium text-emerald-700">
+                                  <Droplets className="h-4 w-4" /> Kapha
+                                </p>
+                                <p className="text-2xl font-bold text-emerald-700">{kaphaScore}</p>
+                              </div>
+                              <div className="mb-1 h-2 w-full rounded-full bg-white">
+                                <div className="h-2 rounded-full bg-[#1F5C3F]" style={{ width: `${kaphaPercent}%` }} />
+                              </div>
+                              <p className="text-right text-sm font-medium text-slate-600">{kaphaPercent}%</p>
+                            </div>
+                          </div>
+
+                          <p className="mb-2 text-sm font-semibold text-slate-900">Assessment Response</p>
+                          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                            {patientAssessmentAnswers.map((entry, index) => (
+                              <div key={`${entry.question}-${index}`} className="grid grid-cols-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs">
+                                <span className="text-slate-600">{entry.question}:</span>
+                                <span className="text-right font-medium text-slate-900">{entry.answer || "Not specified"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 space-y-3">
+                          <p className="text-sm font-semibold text-slate-900">Final Diagnosis</p>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label className="mb-1 block text-sm font-medium text-slate-700">Final Prakriti</label>
+                              <Select
+                                value={consultationData.diagnosis.finalPrakriti}
+                                onValueChange={(value) =>
+                                  setConsultationData((previous) => ({
+                                    ...previous,
+                                    diagnosis: {
+                                      ...previous.diagnosis,
+                                      finalPrakriti: value,
+                                    },
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="border-emerald-200 bg-white">
+                                  <SelectValue placeholder="Select Prakriti" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Vata">Vata</SelectItem>
+                                  <SelectItem value="Pitta">Pitta</SelectItem>
+                                  <SelectItem value="Kapha">Kapha</SelectItem>
+                                  <SelectItem value="Vata-Pitta">Vata-Pitta</SelectItem>
+                                  <SelectItem value="Pitta-Kapha">Pitta-Kapha</SelectItem>
+                                  <SelectItem value="Vata-Kapha">Vata-Kapha</SelectItem>
+                                  <SelectItem value="Tri-doshic">Tri-doshic</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-sm font-medium text-slate-700">Final Vikriti</label>
+                              <Select
+                                value={consultationData.diagnosis.finalVikriti}
+                                onValueChange={(value) =>
+                                  setConsultationData((previous) => ({
+                                    ...previous,
+                                    diagnosis: {
+                                      ...previous.diagnosis,
+                                      finalVikriti: value,
+                                    },
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="border-emerald-200 bg-white">
+                                  <SelectValue placeholder="Select Vikriti" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Vata aggravation">Vata aggravation</SelectItem>
+                                  <SelectItem value="Pitta aggravation">Pitta aggravation</SelectItem>
+                                  <SelectItem value="Kapha aggravation">Kapha aggravation</SelectItem>
+                                  <SelectItem value="Vata-Pitta imbalance">Vata-Pitta imbalance</SelectItem>
+                                  <SelectItem value="Pitta-Kapha imbalance">Pitta-Kapha imbalance</SelectItem>
+                                  <SelectItem value="Vata-Kapha imbalance">Vata-Kapha imbalance</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-sm font-medium text-slate-700">Chief Complaint</label>
+                            <Textarea
+                              value={consultationData.diagnosis.chiefComplaint}
+                              onChange={(event) =>
+                                setConsultationData((previous) => ({
+                                  ...previous,
+                                  diagnosis: {
+                                    ...previous.diagnosis,
+                                    chiefComplaint: event.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Add live consultation notes"
+                              rows={3}
+                              className="border-emerald-200 bg-white"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {currentStep === 2 && (
+            <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2 text-emerald-900">
+                  <Utensils className="h-4 w-4" />
+                  Diet & Nutrition (Optional)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="xl:col-span-8 space-y-3">
+                  <Input
+                    value={dietQuickSearch}
+                    onChange={(event) => setDietQuickSearch(event.target.value)}
+                    placeholder="Search foods"
+                    className="border-emerald-200"
+                  />
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-emerald-100 bg-white p-3">
+                    <div className="space-y-2">
+                      {filteredFoods.slice(0, 10).map((food) => (
+                        <div key={food.id} className="flex items-center justify-between rounded-md border border-emerald-100 px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{food.name}</p>
+                            <p className="text-xs text-slate-500">{food.category || "Food"} • {food.calories || 0} kcal</p>
+                          </div>
+                          <Button type="button" size="sm" className="bg-[#1F5C3F] text-white" onClick={() => addFoodLine(food)}>
+                            Add
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Diet Chart Items</label>
+                    <Textarea
+                      value={consultationData.diet.items}
+                      onChange={(event) =>
+                        setConsultationData((previous) => ({
+                          ...previous,
+                          diet: {
+                            ...previous.diet,
+                            include: true,
+                            items: event.target.value,
+                          },
+                        }))
+                      }
+                      rows={6}
+                      className="border-emerald-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="xl:col-span-4 space-y-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Pathya (Do)</label>
+                    <Textarea
+                      value={consultationData.diet.pathya}
+                      onChange={(event) =>
+                        setConsultationData((previous) => ({
+                          ...previous,
+                          diet: {
+                            ...previous.diet,
+                            include: true,
+                            pathya: event.target.value,
+                          },
+                        }))
+                      }
+                      rows={5}
+                      className="border-emerald-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Apathya (Avoid)</label>
+                    <Textarea
+                      value={consultationData.diet.apathya}
+                      onChange={(event) =>
+                        setConsultationData((previous) => ({
+                          ...previous,
+                          diet: {
+                            ...previous.diet,
+                            include: true,
+                            apathya: event.target.value,
+                          },
+                        }))
+                      }
+                      rows={5}
+                      className="border-emerald-200"
+                    />
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => skipStep(2)}>
+                    Skip this step
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {currentStep === 3 && (
+            <Card className="border-sky-200 bg-gradient-to-br from-sky-50/60 to-white">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2 text-sky-900">
+                  <Activity className="h-4 w-4" />
+                  Lifestyle & Asanas (Optional)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="xl:col-span-5 space-y-3">
+                  <Input
+                    value={asanaQuickSearch}
+                    onChange={(event) => setAsanaQuickSearch(event.target.value)}
+                    placeholder="Search asana"
+                    className="border-sky-200"
+                  />
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-sky-100 bg-white p-3">
+                    <div className="space-y-2">
+                      {filteredAsanas.slice(0, 10).map((asana) => (
+                        <div key={asana.id} className="flex items-center justify-between rounded-md border border-sky-100 px-3 py-2">
+                          <p className="text-sm font-medium text-slate-900">{asana.name}</p>
+                          <Button type="button" size="sm" className="bg-sky-700 text-white" onClick={() => addAsanaLine(asana)}>
+                            Add
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="xl:col-span-7 space-y-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Selected Asanas</label>
+                    <Textarea
+                      value={consultationData.lifestyle.asanas}
+                      onChange={(event) =>
+                        setConsultationData((previous) => ({
+                          ...previous,
+                          lifestyle: {
+                            ...previous.lifestyle,
+                            include: true,
+                            asanas: event.target.value,
+                          },
+                        }))
+                      }
+                      rows={5}
+                      className="border-sky-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Sleep Schedule</label>
+                    <Input
+                      value={consultationData.lifestyle.sleepSchedule}
+                      onChange={(event) =>
+                        setConsultationData((previous) => ({
+                          ...previous,
+                          lifestyle: {
+                            ...previous.lifestyle,
+                            include: true,
+                            sleepSchedule: event.target.value,
+                          },
+                        }))
+                      }
+                      className="border-sky-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Lifestyle Rules</label>
+                    <Textarea
+                      value={consultationData.lifestyle.rules}
+                      onChange={(event) =>
+                        setConsultationData((previous) => ({
+                          ...previous,
+                          lifestyle: {
+                            ...previous.lifestyle,
+                            include: true,
+                            rules: event.target.value,
+                          },
+                        }))
+                      }
+                      rows={4}
+                      className="border-sky-200"
+                    />
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => skipStep(3)}>
+                    Skip this step
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {currentStep === 4 && (
+            <Card className="border-amber-200 bg-gradient-to-br from-amber-50/60 to-white">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2 text-amber-900">
+                  <Pill className="h-4 w-4" />
+                  Aushadhi / Medicines
+                </CardTitle>
+                <Button type="button" variant="outline" onClick={addMedicine}>
+                  <Plus className="h-4 w-4" />
+                  Add Medicine
+                </Button>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="xl:col-span-4 space-y-3">
+                  <Input
+                    value={medicineQuickSearch}
+                    onChange={(event) => setMedicineQuickSearch(event.target.value)}
+                    placeholder="Search medicine"
+                    className="border-amber-200"
+                  />
+                  <div className="max-h-72 overflow-y-auto rounded-lg border border-amber-100 bg-white p-3">
+                    <div className="space-y-2">
+                      {filteredMedicines.slice(0, 10).map((medicine) => (
+                        <div key={medicine.id} className="flex items-center justify-between rounded-md border border-amber-100 px-3 py-2">
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{medicine.medicineName}</p>
+                            <p className="text-xs text-slate-500">{medicine.medicineType}</p>
+                          </div>
+                          <Button type="button" size="sm" className="bg-amber-700 text-white" onClick={() => addMedicineFromCatalog(medicine)}>
+                            Add
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="xl:col-span-8 space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                  {consultationData.medicines.map((medicine) => (
+                    <div key={medicine.id} className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <Input
+                          value={medicine.name}
+                          onChange={(event) => updateMedicine(medicine.id, "name", event.target.value)}
+                          placeholder="Medicine Name"
+                        />
+                        <Input
+                          value={medicine.dosage}
+                          onChange={(event) => updateMedicine(medicine.id, "dosage", event.target.value)}
+                          placeholder="Dosage"
+                        />
+                        <Input
+                          value={medicine.timing}
+                          onChange={(event) => updateMedicine(medicine.id, "timing", event.target.value)}
+                          placeholder="Timing"
+                        />
+                        <Input
+                          value={medicine.notes}
+                          onChange={(event) => updateMedicine(medicine.id, "notes", event.target.value)}
+                          placeholder="Notes"
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="text-red-700"
+                          onClick={() => removeMedicine(medicine.id)}
+                          disabled={consultationData.medicines.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    className="mt-3 min-h-12 w-full bg-gradient-to-r from-[#1F5C3F] to-emerald-600 text-base font-semibold text-white hover:from-[#194A33] hover:to-emerald-700"
+                    onClick={finalizeTreatmentPlan}
+                    disabled={saveDoctorPlanMutation.isPending || !appointmentId}
+                  >
+                    {saveDoctorPlanMutation.isPending ? "Finalizing..." : "Finalize Treatment Plan"}
+                    <CheckCircle2 className="h-5 w-5" />
+                  </Button>
+                  {!appointmentId && (
+                    <p className="text-xs text-red-600">
+                      Select or open an appointment before finalizing this plan.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-emerald-200 bg-white shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur">
+        <div className="mx-auto flex w-full max-w-[1500px] items-center justify-between gap-3 px-4 py-3 sm:px-8">
+          <Button
+            type="button"
+            onClick={goBack}
+            className="min-w-[112px] bg-[#1F5C3F] text-white hover:bg-[#184734]"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </Button>
+
+          <div className="text-sm font-medium text-slate-600">Step {currentStep} of 4</div>
+
+          <Button
+            type="button"
+            onClick={goNext}
+            disabled={
+              currentStep === 4 ||
+              (currentStep === 1 && !canGoNextFromDiagnosis)
+            }
+            className="min-w-[112px] bg-[#1F5C3F] text-white hover:bg-[#184734]"
+          >
+            Next
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
