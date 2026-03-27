@@ -5,6 +5,7 @@ import {
   getDepartments,
   getDoctorsByDepartment,
   getAvailableSlots,
+  markAppointmentLive,
   saveDoctorPlan,
   getDoctorAppointments,
   getPatientAppointments,
@@ -23,7 +24,8 @@ router.get("/departments", getDepartments);
 router.get("/doctors", getDoctorsByDepartment);
 router.get("/slots", getAvailableSlots);
 router.post("/book", bookAppointment);
-router.get("/:appointmentId/plan", saveDoctorPlan);
+router.put("/:appointmentId/plan", saveDoctorPlan);
+router.put("/:appointmentId/live", markAppointmentLive);
 router.get("/doctor/:doctorId/patients", getDoctorPatients);
 router.get("/doctor/:doctorId", getDoctorAppointments);
 router.get("/patient/:patientId", getPatientAppointments);

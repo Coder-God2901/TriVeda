@@ -982,6 +982,7 @@ export default function ActiveConsultationWizard({
         tests: [],
       },
       medications,
+      isCompleted: true,
     };
 
     await saveDoctorPlanMutation.mutateAsync({

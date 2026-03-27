@@ -72,6 +72,10 @@ export const appointmentApi = {
   saveDoctorPlan: async (appointmentId: string, planData: any) => {
     return apiClient.put(`/appointments/${appointmentId}/plan`, planData);
   },
+
+  setAppointmentLive: async (appointmentId: string) => {
+    return apiClient.put(`/appointments/${appointmentId}/live`, {});
+  },
   
   // 6. Fetch Patient's Appointments
   getPatientAppointments: async (patientId: string) => {

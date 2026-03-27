@@ -36,7 +36,7 @@ export interface AppointmentBooking {
     experience: number;
     clinic: string;
   };
-  status: "confirmed" | "pending";
+  status: "confirmed" | "pending" | "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED";
 }
 
 const STORAGE_KEY = "triveda:patient-appointments";

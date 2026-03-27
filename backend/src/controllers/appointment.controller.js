@@ -20,6 +20,199 @@ const toTitleCase = (value = "") =>
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
 
+const toSafeString = (value, fieldName, maxLength = 2000) => {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") {
+    throw new ApiError(400, `${fieldName} must be a string.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw new ApiError(400, `${fieldName} exceeds maximum length of ${maxLength}.`);
+  }
+  return trimmed;
+};
+
+const toStringArray = (value, fieldName, maxItems = 200, maxItemLength = 300) => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, `${fieldName} must be an array.`);
+  }
+  if (value.length > maxItems) {
+    throw new ApiError(400, `${fieldName} exceeds maximum items (${maxItems}).`);
+  }
+
+  return value.map((item, index) => {
+    if (typeof item !== "string") {
+      throw new ApiError(400, `${fieldName}[${index}] must be a string.`);
+    }
+    const trimmed = item.trim();
+    if (trimmed.length > maxItemLength) {
+      throw new ApiError(
+        400,
+        `${fieldName}[${index}] exceeds maximum length of ${maxItemLength}.`
+      );
+    }
+    return trimmed;
+  });
+};
+
+const parseDurationDays = (medication, index) => {
+  const raw = medication.durationDays ?? medication.duration;
+  if (raw === undefined || raw === null || raw === "") return null;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new ApiError(
+      400,
+      `medications[${index}].duration/durationDays must be a non-negative number.`
+    );
+  }
+
+  return Math.round(parsed);
+};
+
+const normalizeDoctorPlanPayload = (payload) => {
+  const doctorNotes = toSafeString(payload?.doctorNotes, "doctorNotes", 5000);
+
+  const diagnosisInput = payload?.diagnosis;
+  if (
+    diagnosisInput !== undefined &&
+    diagnosisInput !== null &&
+    typeof diagnosisInput !== "object"
+  ) {
+    throw new ApiError(400, "diagnosis must be an object.");
+  }
+
+  const diagnosis = diagnosisInput
+    ? {
+        finalPrakriti: toSafeString(
+          diagnosisInput.finalPrakriti,
+          "diagnosis.finalPrakriti",
+          120
+        ),
+        finalVikriti: toSafeString(
+          diagnosisInput.finalVikriti,
+          "diagnosis.finalVikriti",
+          120
+        ),
+        chiefComplaint: toSafeString(
+          diagnosisInput.chiefComplaint,
+          "diagnosis.chiefComplaint",
+          4000
+        ),
+      }
+    : null;
+
+  const dietInput = payload?.dietChart;
+  if (dietInput !== undefined && dietInput !== null && typeof dietInput !== "object") {
+    throw new ApiError(400, "dietChart must be an object.");
+  }
+
+  const dietChart = dietInput
+    ? {
+        items: toStringArray(dietInput.items, "dietChart.items"),
+        pathya: toStringArray(dietInput.pathya, "dietChart.pathya"),
+        apathya: toStringArray(dietInput.apathya, "dietChart.apathya"),
+      }
+    : { items: [], pathya: [], apathya: [] };
+
+  const routineInput = payload?.routinePlan;
+  if (
+    routineInput !== undefined &&
+    routineInput !== null &&
+    typeof routineInput !== "object"
+  ) {
+    throw new ApiError(400, "routinePlan must be an object.");
+  }
+
+  const routinePlan = routineInput
+    ? {
+        mode: toSafeString(routineInput.mode, "routinePlan.mode", 80) || "manual",
+        sleepSchedule: toSafeString(
+          routineInput.sleepSchedule,
+          "routinePlan.sleepSchedule",
+          2000
+        ),
+        exercisesAndAsanas: toStringArray(
+          routineInput.exercisesAndAsanas,
+          "routinePlan.exercisesAndAsanas"
+        ),
+        therapy: toStringArray(routineInput.therapy, "routinePlan.therapy"),
+        tests: toStringArray(routineInput.tests, "routinePlan.tests"),
+      }
+    : {
+        mode: "manual",
+        sleepSchedule: "",
+        exercisesAndAsanas: [],
+        therapy: [],
+        tests: [],
+      };
+
+  const medicationsInput = payload?.medications;
+  if (medicationsInput !== undefined && !Array.isArray(medicationsInput)) {
+    throw new ApiError(400, "medications must be an array.");
+  }
+
+  const medications = (medicationsInput || [])
+    .map((medication, index) => {
+      if (!medication || typeof medication !== "object") {
+        throw new ApiError(400, `medications[${index}] must be an object.`);
+      }
+
+      const name = toSafeString(medication.name, `medications[${index}].name`, 180);
+      const dosage = toSafeString(medication.dosage, `medications[${index}].dosage`, 180);
+      const timing = toSafeString(medication.timing, `medications[${index}].timing`, 120);
+      const medicineType = toSafeString(
+        medication.medicineType,
+        `medications[${index}].medicineType`,
+        120
+      );
+      const doctorNotesText = toSafeString(
+        medication.doctorNotes,
+        `medications[${index}].doctorNotes`,
+        2000
+      );
+      const durationDays = parseDurationDays(medication, index);
+
+      const isCompletelyEmpty =
+        !name &&
+        !dosage &&
+        !timing &&
+        !medicineType &&
+        !doctorNotesText &&
+        durationDays === null;
+
+      if (isCompletelyEmpty) {
+        return null;
+      }
+
+      if (!name) {
+        throw new ApiError(400, `medications[${index}].name is required when medication details are provided.`);
+      }
+
+      return {
+        name,
+        dosage,
+        timing,
+        medicineType,
+        durationDays,
+        doctorNotes: doctorNotesText,
+      };
+    })
+    .filter(Boolean);
+
+  const isCompleted = Boolean(payload?.isCompleted);
+
+  return {
+    doctorNotes,
+    diagnosis,
+    dietChart,
+    routinePlan,
+    medications,
+    isCompleted,
+  };
+};
+
 // ==========================================
 // 1. SMART INTAKE
 // ==========================================
@@ -505,19 +698,75 @@ export const getDoctorAppointments = asyncHandler(async (req, res) => {
 // ==========================================
 export const saveDoctorPlan = asyncHandler(async (req, res) => {
   const { appointmentId } = req.params;
-  const { doctorNotes, dietChart, routinePlan, medications, isCompleted } =
-    req.body;
+  if (!appointmentId) {
+    throw new ApiError(400, "appointmentId is required.");
+  }
 
-  const appointment = await prisma.appointment.update({
+  const normalized = normalizeDoctorPlanPayload(req.body || {});
+
+  const appointmentRecord = await prisma.appointment.findUnique({
     where: { id: appointmentId },
-    data: {
-      doctorNotes,
-      dietChart,
-      routinePlan,
-      medications,
-      isCompleted,
-      status: isCompleted ? "COMPLETED" : undefined,
-    },
+    select: { id: true, patientId: true, doctorId: true },
+  });
+
+  if (!appointmentRecord) {
+    throw new ApiError(404, "Appointment not found.");
+  }
+
+  const appointment = await prisma.$transaction(async (tx) => {
+    const updatedAppointment = await tx.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        doctorNotes: normalized.doctorNotes,
+        diagnosis: normalized.diagnosis,
+        dietChart: normalized.dietChart,
+        routinePlan: normalized.routinePlan,
+        medications: normalized.medications,
+        isCompleted: normalized.isCompleted,
+        status: normalized.isCompleted ? "COMPLETED" : undefined,
+      },
+    });
+
+    const treatmentPlan = await tx.treatmentPlan.upsert({
+      where: { appointmentId },
+      create: {
+        appointmentId,
+        patientId: appointmentRecord.patientId,
+        doctorId: appointmentRecord.doctorId,
+        doctorNotes: normalized.doctorNotes,
+        diagnosis: normalized.diagnosis,
+        dietChart: normalized.dietChart,
+        routinePlan: normalized.routinePlan,
+        isCompleted: normalized.isCompleted,
+      },
+      update: {
+        doctorNotes: normalized.doctorNotes,
+        diagnosis: normalized.diagnosis,
+        dietChart: normalized.dietChart,
+        routinePlan: normalized.routinePlan,
+        isCompleted: normalized.isCompleted,
+      },
+    });
+
+    await tx.treatmentMedication.deleteMany({
+      where: { treatmentPlanId: treatmentPlan.id },
+    });
+
+    if (normalized.medications.length > 0) {
+      await tx.treatmentMedication.createMany({
+        data: normalized.medications.map((medication) => ({
+          treatmentPlanId: treatmentPlan.id,
+          name: medication.name,
+          dosage: medication.dosage || null,
+          timing: medication.timing || null,
+          medicineType: medication.medicineType || null,
+          durationDays: medication.durationDays,
+          doctorNotes: medication.doctorNotes || null,
+        })),
+      });
+    }
+
+    return updatedAppointment;
   });
 
   return res
@@ -525,6 +774,41 @@ export const saveDoctorPlan = asyncHandler(async (req, res) => {
     .json(
       new ApiResponse(200, { appointmentId: appointment.id }, "Plan saved.")
     );
+});
+
+export const markAppointmentLive = asyncHandler(async (req, res) => {
+  const { appointmentId } = req.params;
+
+  if (!appointmentId) {
+    throw new ApiError(400, "appointmentId is required.");
+  }
+
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    select: { id: true, status: true },
+  });
+
+  if (!appointment) {
+    throw new ApiError(404, "Appointment not found.");
+  }
+
+  if (appointment.status === "CANCELLED") {
+    throw new ApiError(400, "Cancelled appointment cannot be marked live.");
+  }
+
+  if (appointment.status === "COMPLETED") {
+    throw new ApiError(400, "Completed appointment cannot be marked live.");
+  }
+
+  const updated = await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: { status: "LIVE" },
+    select: { id: true, status: true },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, updated, "Appointment marked live."));
 });
 
 // ==========================================

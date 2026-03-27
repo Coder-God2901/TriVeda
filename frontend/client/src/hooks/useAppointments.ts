@@ -69,6 +69,25 @@ export const useSaveDoctorPlan = () => {
   });
 };
 
+export const useSetAppointmentLive = () => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: (appointmentId: string) => appointmentApi.setAppointmentLive(appointmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not start appointment",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+};
+
 export const usePatientAppointments = (patientId: string) => {
   return useQuery({
     queryKey: ["patientAppointments", patientId],

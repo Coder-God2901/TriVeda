@@ -70,6 +70,7 @@ import { useDoctorProfile, useUpdatePatientProfile } from "@/hooks/useProfile";
 import { useDoctorPatients } from "@/hooks/useDoctorPatients";
 import { useDoctorAppointments } from "@/hooks/useAppointments";
 import { useSaveDoctorPlan } from "@/hooks/useAppointments";
+import { useSetAppointmentLive } from "@/hooks/useAppointments";
 import { useLatestPrakritiAssessment, useSavePrakritiAssessment } from "@/hooks/useAppointments";
 import { useTreatmentCatalogs } from "@/hooks/useTreatmentCatalogs";
 import type {
@@ -231,6 +232,7 @@ export default function DoctorDashboard({
   const doctorDisplayName = doctorPayload?.name || loggedInUser?.name || "Doctor";
   const doctorSpecialty = doctorPayload?.doctorProfile?.specialty || "Ayurvedic Doctor";
   const saveDoctorPlanMutation = useSaveDoctorPlan();
+  const setAppointmentLiveMutation = useSetAppointmentLive();
   const savePrakritiAssessmentMutation = useSavePrakritiAssessment();
   const updatePatientProfileMutation = useUpdatePatientProfile();
   const { data: treatmentCatalogData } = useTreatmentCatalogs();
@@ -528,7 +530,7 @@ export default function DoctorDashboard({
           experience: Number(doctorPayload?.doctorProfile?.experienceYrs ?? 0),
           clinic: "TriVeda",
         },
-        status: "confirmed",
+        status: appointment?.status || "SCHEDULED",
       };
     });
 
@@ -559,6 +561,40 @@ export default function DoctorDashboard({
     const start = getAppointmentDateTime(appointment);
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     return now >= start && now <= end;
+  };
+
+  const getAppointmentLifecycle = (status?: string) => {
+    const normalized = String(status || "SCHEDULED").toUpperCase();
+
+    if (normalized === "LIVE") {
+      return {
+        label: "Live",
+        badgeClass: "bg-green-100 text-green-700 border border-green-200",
+        ctaLabel: "Live Appointment",
+      };
+    }
+
+    if (normalized === "COMPLETED") {
+      return {
+        label: "Completed",
+        badgeClass: "bg-slate-100 text-slate-700 border border-slate-200",
+        ctaLabel: "View Appointment",
+      };
+    }
+
+    if (normalized === "CANCELLED") {
+      return {
+        label: "Cancelled",
+        badgeClass: "bg-red-100 text-red-700 border border-red-200",
+        ctaLabel: "Unavailable",
+      };
+    }
+
+    return {
+      label: "Scheduled",
+      badgeClass: "bg-blue-100 text-blue-700 border border-blue-200",
+      ctaLabel: "Start Appointment",
+    };
   };
 
   const selectedAppointment = sharedAppointments.find(
@@ -3843,7 +3879,7 @@ export default function DoctorDashboard({
               )}
 
               {sharedAppointments.filter((appointment) => 
-                getAppointmentDateTime(appointment) >= new Date() && 
+                (getAppointmentDateTime(appointment) >= new Date() || String(appointment.status || "").toUpperCase() === "LIVE") && 
                 appointment.assignedDoctor?.id === doctorId
               ).length === 0 ? (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-sm text-[#1F5C3F]">
@@ -3853,15 +3889,14 @@ export default function DoctorDashboard({
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {sharedAppointments
                     .filter((appointment) => 
-                      getAppointmentDateTime(appointment) >= new Date() && 
+                      (getAppointmentDateTime(appointment) >= new Date() || String(appointment.status || "").toUpperCase() === "LIVE") && 
                       appointment.assignedDoctor?.id === doctorId
                     )
                     .sort(
                       (a, b) => getAppointmentDateTime(a).getTime() - getAppointmentDateTime(b).getTime()
                     )
                     .map((appointment) => {
-                      const isStarted = isAppointmentStarted(appointment);
-                      const isOngoing = isAppointmentOngoing(appointment);
+                      const lifecycle = getAppointmentLifecycle(appointment.status);
                       
                       return (
                         <div 
@@ -3881,14 +3916,8 @@ export default function DoctorDashboard({
                                 <p className="text-xs text-gray-500 mt-1">{appointment.bookingId}</p>
                               </div>
                             </div>
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${
-                              isOngoing 
-                                ? "bg-green-100 text-green-700 border border-green-200" 
-                                : isStarted
-                                ? "bg-orange-100 text-orange-700 border border-orange-200"
-                                : "bg-blue-100 text-blue-700 border border-blue-200"
-                            }`}>
-                              {isOngoing ? "Ongoing" : isStarted ? "Started" : "Scheduled"}
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${lifecycle.badgeClass}`}>
+                              {lifecycle.label}
                             </span>
                           </div>
 
@@ -3973,17 +4002,21 @@ export default function DoctorDashboard({
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 const resolvedPatientId =
                                   appointment.patientId ||
                                   patients.find((patient) => patient.name === appointment.patientName)?.id;
                                 if (resolvedPatientId) {
+                                  if (String(appointment.status || "").toUpperCase() === "SCHEDULED") {
+                                    await setAppointmentLiveMutation.mutateAsync(String(appointment.id));
+                                  }
                                   openPatientProfile(String(resolvedPatientId), "consult", appointment.id);
                                 }
                               }}
+                              disabled={String(appointment.status || "").toUpperCase() === "CANCELLED"}
                               className="w-full py-2 px-3 bg-gradient-to-r from-[#1F5C3F] to-[#10B981] text-white rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                             >
-                              <Video className="w-4 h-4" /> Start Appointment
+                              <Video className="w-4 h-4" /> {lifecycle.ctaLabel}
                             </button>
                           </div>
                         </div>
