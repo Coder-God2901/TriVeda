@@ -4,60 +4,65 @@ import pickle
 import os
 import requests
 from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import time
 import re
 from datetime import datetime
+import faiss
+from collections import defaultdict
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "llama3.2"
+MODEL_NAME = "llama3.2:1b"
 
 class UnifiedAyurvedicRAGBot:
-    """Unified RAG Bot combining herbs database + PubMed research"""
     
     def __init__(self, herbs_file="herbs.json", pubmed_file="pubmed_data/pubmed_for_rag.json"):
-        print(" Initializing UNIFIED Ayurvedic RAG Bot with Llama 3.2...")
+        print("Initializing UNIFIED Ayurvedic RAG Bot...")
         print("="*70)
         
-        self.herbs_file = herbs_file
-        self.pubmed_file = pubmed_file
+        script_dir = os.path.dirname(os.path.abspath(__file__))
         
+        self.herbs_file = os.path.join(script_dir, herbs_file) if not os.path.isabs(herbs_file) else herbs_file
+        self.pubmed_file = os.path.join(script_dir, pubmed_file) if not os.path.isabs(pubmed_file) else pubmed_file
         
         self.herbs_data = []
         self.pubmed_data = []
-        self.all_documents = [] 
-        self.all_metadata = []   
+        self.all_documents = []
+        self.all_metadata = []
         self.embeddings = None
+        self.faiss_index = None
+        
+        self.query_cache = {}
         
         self._check_ollama()
         
-        print(" Loading embedding model...")
+        print("Loading embedding model...")
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         
         os.makedirs("./knowledge_base", exist_ok=True)
+        
         self._load_or_create_embeddings()
         
+        self._build_faiss_index()
         
         self._print_stats()
     
     def _check_ollama(self):
-        """Check if Ollama is running"""
         try:
-            response = requests.get("http://localhost:11434/api/tags")
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
             if response.status_code == 200:
                 models = response.json().get('models', [])
                 available = any(MODEL_NAME in model.get('name', '') for model in models)
                 if available:
-                    print(f" Llama 3.2 is available")
+                    print(f"Ollama with {MODEL_NAME} is available")
                 else:
-                    print(f" Llama 3.2 not found. Run: ollama pull llama3.2")
+                    print(f"Model {MODEL_NAME} not found. Run: ollama pull {MODEL_NAME}")
             else:
-                print(f" Ollama not running. Start with: ollama serve")
+                print("Ollama not running. Start with: ollama serve")
         except:
-            print(f" Cannot connect to Ollama. Make sure it's running.")
+            print("Cannot connect to Ollama. Make sure it's running.")
     
     def _load_or_create_embeddings(self):
-        """Load existing embeddings or create new ones"""
         embeddings_path = "./knowledge_base/unified_embeddings.npy"
         docs_path = "./knowledge_base/unified_documents.pkl"
         meta_path = "./knowledge_base/unified_metadata.pkl"
@@ -65,116 +70,82 @@ class UnifiedAyurvedicRAGBot:
         if (os.path.exists(embeddings_path) and 
             os.path.exists(docs_path) and 
             os.path.exists(meta_path)):
-            print(" Loading existing unified embeddings...")
+            print("Loading existing unified embeddings...")
             self.embeddings = np.load(embeddings_path)
             with open(docs_path, 'rb') as f:
                 self.all_documents = pickle.load(f)
             with open(meta_path, 'rb') as f:
                 self.all_metadata = pickle.load(f)
-            print(f" Loaded {len(self.all_documents)} documents")
+            print(f"Loaded {len(self.all_documents)} documents")
         else:
-            print(" Creating new unified embeddings...")
+            print("Creating new unified embeddings...")
             self._create_unified_embeddings()
     
     def _create_unified_embeddings(self):
-        """Create embeddings from both herb and PubMed sources"""
         
-        
-        print("\n Loading herb database...")
+        print("\nLoading herb database...")
         try:
             with open(self.herbs_file, 'r', encoding='utf-8') as f:
                 self.herbs_data = json.load(f)
-            print(f"    Loaded {len(self.herbs_data)} herbs")
+            print(f"Loaded {len(self.herbs_data)} herbs")
         except Exception as e:
-            print(f"    Error loading herbs: {e}")
+            print(f"Error loading herbs: {e}")
             self.herbs_data = []
         
-        
-        print("\n Loading PubMed research articles...")
+        print("\nLoading PubMed research articles...")
         try:
             with open(self.pubmed_file, 'r', encoding='utf-8') as f:
                 self.pubmed_data = json.load(f)
-            print(f"    Loaded {len(self.pubmed_data)} PubMed articles")
+            print(f"Loaded {len(self.pubmed_data)} PubMed articles")
         except Exception as e:
-            print(f"    Error loading PubMed data: {e}")
+            print(f"Error loading PubMed data: {e}")
             self.pubmed_data = []
         
-        
-        print("\n🔨 Creating herb documents...")
+        print("\nCreating herb documents...")
         for i, herb in enumerate(self.herbs_data):
             doc_text, metadata = self._create_herb_document(herb, i)
             self.all_documents.append(doc_text)
             self.all_metadata.append(metadata)
         
-        
-        print("🔨 Creating PubMed research documents...")
+        print("Creating PubMed research documents...")
         for i, article in enumerate(self.pubmed_data):
             doc_text, metadata = self._create_pubmed_document(article, i)
             self.all_documents.append(doc_text)
             self.all_metadata.append(metadata)
         
-        print(f"\n Total documents created: {len(self.all_documents)}")
-        print(f"   • Herbs: {len(self.herbs_data)}")
-        print(f"   • Research articles: {len(self.pubmed_data)}")
-        
+        print(f"\nTotal documents created: {len(self.all_documents)}")
+        print(f"Herbs: {len(self.herbs_data)}")
+        print(f"Research articles: {len(self.pubmed_data)}")
         
         if self.all_documents:
-            print(f"\n Generating embeddings for {len(self.all_documents)} documents...")
+            print(f"\nGenerating embeddings for {len(self.all_documents)} documents...")
             self.embeddings = self.embedder.encode(
                 self.all_documents, 
                 show_progress_bar=True,
-                batch_size=32
+                batch_size=32,
+                convert_to_numpy=True
             )
             
-            
-            print(" Saving to disk...")
+            print("Saving to disk...")
             np.save("./knowledge_base/unified_embeddings.npy", self.embeddings)
             with open("./knowledge_base/unified_documents.pkl", 'wb') as f:
                 pickle.dump(self.all_documents, f)
             with open("./knowledge_base/unified_metadata.pkl", 'wb') as f:
                 pickle.dump(self.all_metadata, f)
             
-            print(f" Created unified knowledge base with {len(self.all_documents)} documents")
+            print(f"Created unified knowledge base with {len(self.all_documents)} documents")
         else:
-            print(" No documents to embed!")
+            print("No documents to embed!")
     
-    def _create_herb_document(self, herb: Dict, index: int) -> tuple:
-        """Create document from herb data"""
+    def _create_herb_document(self, herb: Dict, index: int) -> Tuple[str, Dict]:
         name = herb.get('name', 'Unknown')
         preview = herb.get('preview', '')
         pacify = herb.get('pacify', [])
         aggravate = herb.get('aggravate', [])
         
-        
-        conditions = []
-        condition_keywords = {
-            'urinary': ['urinary', 'dysuria', 'cystitis', 'UTI', 'bladder', 'kidney'],
-            'digestive': ['digest', 'stomach', 'gut', 'acidity', 'appetite'],
-            'respiratory': ['respiratory', 'cough', 'cold', 'asthma', 'bronchitis'],
-            'skin': ['skin', 'rash', 'eczema', 'psoriasis', 'acne'],
-            'pain': ['pain', 'inflammation', 'arthritis', 'joint'],
-            'fever': ['fever', 'jvara', 'temperature'],
-            'mental': ['stress', 'anxiety', 'mental', 'nervous', 'brain']
-        }
-        
-        for category, keywords in condition_keywords.items():
-            if any(keyword in preview.lower() for keyword in keywords):
-                conditions.extend(keywords)
-        
-        
-        doc_text = f"""
-[SOURCE: HERB DATABASE]
-Herb/Formula: {name}
-Primary Indications: {preview}
-
-Ayurvedic Properties:
-- Pacifies Doshas: {', '.join(pacify) if pacify else 'N/A'}
-- Aggravates Doshas: {', '.join(aggravate) if aggravate else 'N/A'}
-
-Related Conditions: {', '.join(set(conditions)) if conditions else 'General wellness'}
-
-Keywords: {name} ayurveda herb {' '.join(pacify)} {' '.join(aggravate)} {' '.join(conditions)}
-"""
+        doc_text = f"""Herb: {name}
+Description: {preview}
+Doshas: {', '.join(pacify)}"""
         
         metadata = {
             'type': 'herb',
@@ -187,130 +158,166 @@ Keywords: {name} ayurveda herb {' '.join(pacify)} {' '.join(aggravate)} {' '.joi
         
         return doc_text, metadata
     
-    def _create_pubmed_document(self, article: Dict, index: int) -> tuple:
-        """Create document from PubMed article"""
+    def _create_pubmed_document(self, article: Dict, index: int) -> Tuple[str, Dict]:
         
         if isinstance(article, dict) and 'text' in article:
-            
             doc_text = article.get('text', '')
             metadata = article.get('metadata', {})
             metadata['type'] = 'research'
             return doc_text, metadata
-        else:
-            
-            title = article.get('title', 'No title')
-            abstract = article.get('abstract', 'No abstract')
-            journal = article.get('journal', 'Unknown')
-            year = article.get('year', 'No year')
-            authors = article.get('authors', 'Unknown')
-            mesh = article.get('mesh_terms', '')
-            keyword = article.get('search_keyword', '')
-            
-            doc_text = f"""
-[SOURCE: PUBMED RESEARCH]
-TITLE: {title}
-AUTHORS: {authors}
-JOURNAL: {journal} ({year})
-PMID: {article.get('pmid', 'N/A')}
-
-ABSTRACT:
-{abstract}
-
-MESH TERMS: {mesh}
-SEARCH KEYWORD: {keyword}
-"""
-            
-            metadata = {
-                'type': 'research',
-                'title': title,
-                'journal': journal,
-                'year': year,
-                'pmid': article.get('pmid'),
-                'search_keyword': keyword,
-                'mesh_terms': mesh
-            }
-            
-            return doc_text, metadata
-    
-    def _expand_query(self, question: str) -> List[str]:
-        """Expand query with related terms"""
-        question_lower = question.lower()
         
+        title = article.get('title', 'No title')
+        abstract = article.get('abstract', 'No abstract')
+        journal = article.get('journal', 'Unknown')
+        year = article.get('year', 'No year')
+        authors = article.get('authors', 'Unknown')
+        keyword = article.get('search_keyword', '')
+        pmid = article.get('pmid', 'N/A')
         
-        condition_map = {
-            'urinary': ['urinary', 'bladder', 'kidney', 'dysuria', 'cystitis', 'UTI', 'mutra'],
-            'digestion': ['digest', 'stomach', 'gut', 'indigestion', 'appetite', 'amlapitta'],
-            'respiratory': ['respiratory', 'lung', 'breath', 'cough', 'cold', 'asthma', 'shwasa'],
-            'pain': ['pain', 'inflammation', 'shoola', 'arthritis', 'joint', 'vedana'],
-            'skin': ['skin', 'rash', 'eczema', 'psoriasis', 'acne', 'kushtha'],
-            'fever': ['fever', 'jvara', 'temperature', 'jwara'],
-            'vata': ['vata', 'vata dosha', 'vata imbalance', 'vata disorder'],
-            'pitta': ['pitta', 'pitta dosha', 'pitta imbalance', 'pitta disorder'],
-            'kapha': ['kapha', 'kapha dosha', 'kapha imbalance', 'kapha disorder']
+        doc_text = f"""Research: {title}
+Abstract: {abstract}
+Journal: {journal} ({year})
+Keywords: {keyword}
+PMID: {pmid}"""
+        
+        metadata = {
+            'type': 'research',
+            'title': title,
+            'abstract': abstract,
+            'journal': journal,
+            'year': year,
+            'authors': authors,
+            'pmid': pmid,
+            'search_keyword': keyword
         }
         
-        
-        expanded_queries = [question]
-        
-        for category, terms in condition_map.items():
-            if any(term in question_lower for term in terms[:2]):
-                expanded_queries.append(' '.join(terms))
-        
-        
-        ayurvedic_terms = ['ayurveda', 'ayurvedic', 'herb', 'formulation', 'treatment']
-        if any(term in question_lower for term in ayurvedic_terms):
-            expanded_queries.append(question + ' ayurveda herb')
-        
-        return list(set(expanded_queries))
+        return doc_text, metadata
+    
+    def _build_faiss_index(self):
+        if self.embeddings is not None and len(self.embeddings) > 0:
+            print("Building FAISS index...")
+            dimension = self.embeddings.shape[1]
+            
+            self.embeddings = self.embeddings.astype('float32')
+            faiss.normalize_L2(self.embeddings)
+            
+            self.faiss_index = faiss.IndexFlatIP(dimension)
+            self.faiss_index.add(self.embeddings)
+            
+            print(f"FAISS index built with {self.faiss_index.ntotal} vectors")
+    
+    def _get_query_embedding(self, query: str) -> np.ndarray:
+        if query not in self.query_cache:
+            embedding = self.embedder.encode([query], convert_to_numpy=True)
+            faiss.normalize_L2(embedding)
+            self.query_cache[query] = embedding
+        return self.query_cache[query]
     
     def _hybrid_search(self, question: str, top_k: int = 10) -> List[Dict]:
-        """Perform hybrid search"""
-        all_scores = []
-        queries = self._expand_query(question)
+        if self.faiss_index is None:
+            return []
         
-        for q in queries:
-            q_embedding = self.embedder.encode([q])
-            similarities = np.dot(self.embeddings, q_embedding.T).flatten()
-            
-            for idx, score in enumerate(similarities):
-                all_scores.append({'idx': idx, 'score': score})
+        q_embedding = self._get_query_embedding(question)
         
-        
-        herb_scores = {}
-        for item in all_scores:
-            idx = item['idx']
-            score = item['score']
-            if idx not in herb_scores or score > herb_scores[idx]:
-                herb_scores[idx] = score
-        
-        
-        sorted_results = sorted(herb_scores.items(), key=lambda x: x[1], reverse=True)
+        distances, indices = self.faiss_index.search(q_embedding, top_k)
         
         results = []
-        for idx, score in sorted_results[:top_k]:
+        for idx, distance in zip(indices[0], distances[0]):
             if idx < len(self.all_metadata):
                 results.append({
                     'idx': idx,
-                    'score': score,
+                    'score': float(distance),
                     'metadata': self.all_metadata[idx]
                 })
         
         return results
     
+    def _generate_fallback_answer(self, question: str, herb_sources: List[Dict], research_sources: List[Dict] = None) -> str:
+        
+        if research_sources is None:
+            research_sources = []
+        
+        is_research_question = any(word in question.lower() for word in ['research', 'study', 'studies', 'evidence', 'scientific', 'say about'])
+        
+        parts = []
+        
+        if is_research_question and research_sources:
+            parts.append("Research Findings:")
+            parts.append("")
+            for i, r in enumerate(research_sources[:3], 1):
+                title = r.get('title', 'Research Article')
+                journal = r.get('journal', '')
+                year = r.get('year', '')
+                abstract = r.get('abstract', '')
+                
+                parts.append(f"{i}. {title}")
+                if journal and year:
+                    parts.append(f"   {journal} ({year})")
+                if abstract and abstract != 'No abstract':
+                    abstract_text = abstract[:350] + "..." if len(abstract) > 350 else abstract
+                    parts.append(f"   {abstract_text}")
+                parts.append("")
+        
+        if herb_sources:
+            if is_research_question and research_sources:
+                parts.append("Traditional Ayurvedic Knowledge:")
+                parts.append("")
+            elif not is_research_question:
+                parts.append("Ayurvedic Herbs for Your Condition:")
+                parts.append("")
+            
+            for i, h in enumerate(herb_sources[:5], 1):
+                name = h.get('name', 'Herb')
+                indications = h.get('indications', 'Traditional Ayurvedic herb')
+                parts.append(f"{i}. {name}")
+                parts.append(f"   {indications}")
+                parts.append("")
+        
+        if not herb_sources and not research_sources:
+            return "I couldn't find specific information about this in the database. Please consult an Ayurvedic practitioner for personalized advice."
+        
+        parts.append("---")
+        parts.append("Please consult an Ayurvedic practitioner before using any herbs or formulations.")
+        
+        return "\n".join(parts)
+    
+    def _generate_with_llama(self, prompt: str) -> str:
+        try:
+            response = requests.post(
+                OLLAMA_URL, 
+                json={
+                    "model": MODEL_NAME,
+                    "prompt": prompt,
+                    "stream": False,
+                    "temperature": 0.1,
+                    "max_tokens": 500
+                },
+                timeout=45
+            )
+            
+            if response.status_code == 200:
+                return response.json().get('response', '').strip()
+            else:
+                return ""
+        except requests.exceptions.Timeout:
+            print("LLM timeout, using fallback...")
+            return ""
+        except Exception as e:
+            print(f"Error calling Ollama: {e}")
+            return ""
+    
     def query(self, question: str, top_k: int = 5) -> Dict[str, Any]:
-        """Query the unified knowledge base"""
-        if self.embeddings is None or len(self.all_documents) == 0:
+        if self.faiss_index is None or len(self.all_documents) == 0:
             return self._empty_response()
         
         start_time = time.time()
         
-        print(f"  🔍 Searching unified database for: '{question}'")
-        search_results = self._hybrid_search(question, top_k=top_k*2)
+        print(f"Searching for: '{question[:50]}...'")
         
+        search_results = self._hybrid_search(question, top_k=top_k * 2)
         
         herb_sources = []
         research_sources = []
-        retrieved_docs = []
         
         for result in search_results:
             idx = result['idx']
@@ -318,12 +325,9 @@ SEARCH KEYWORD: {keyword}
             metadata = result['metadata']
             
             if idx < len(self.all_documents):
-                retrieved_docs.append(self.all_documents[idx])
-                
                 source_info = {
                     'relevance': score,
-                    'score': score,
-                    'text': self.all_documents[idx][:300] + "..."
+                    'score': score
                 }
                 
                 if metadata.get('type') == 'herb':
@@ -337,67 +341,40 @@ SEARCH KEYWORD: {keyword}
                     source_info.update({
                         'type': 'research',
                         'title': metadata.get('title', 'Research Article'),
+                        'abstract': metadata.get('abstract', ''),
                         'journal': metadata.get('journal', ''),
-                        'year': metadata.get('year', '')
+                        'year': metadata.get('year', ''),
+                        'authors': metadata.get('authors', '')
                     })
                     research_sources.append(source_info)
         
+        seen_titles = set()
+        unique_research = []
+        for r in research_sources:
+            title = r.get('title', '')
+            if title not in seen_titles:
+                seen_titles.add(title)
+                unique_research.append(r)
+        research_sources = unique_research
         
-        context = "\n\n---\n\n".join(retrieved_docs[:3])
+        herb_sources.sort(key=lambda x: x['relevance'], reverse=True)
+        research_sources.sort(key=lambda x: x['relevance'], reverse=True)
         
+        answer = self._generate_fallback_answer(question, herb_sources, research_sources)
         
-        enhanced_prompt = f"""You are an expert Ayurvedic consultant. Based ONLY on the provided context, answer the question using both herb database information and research articles.
-
-Context (Ayurvedic herbs AND research articles):
-{context}
-
-Question: {question}
-
-Instructions:
-1. Use information from BOTH herbs and research if available
-2. Clearly indicate whether information comes from traditional herb knowledge or modern research
-3. List specific herbs/formulations with their indications
-4. Cite research findings when relevant
-5. If the context doesn't contain relevant information, say so
-
-Answer:"""
-        
-        answer = self._generate_with_llama(enhanced_prompt)
-        
-        
-        all_scores = [r['score'] for r in search_results[:top_k]]
+        all_scores = [r['relevance'] for r in herb_sources[:top_k]] + [r['relevance'] for r in research_sources[:top_k]]
         confidence = float(np.mean(all_scores)) if all_scores else 0.0
         
         return {
             "answer": answer,
-            "herb_sources": herb_sources[:3],
+            "herb_sources": herb_sources[:5],
             "research_sources": research_sources[:3],
             "total_sources": len(herb_sources) + len(research_sources),
             "confidence": confidence,
             "processing_time": time.time() - start_time
         }
     
-    def _generate_with_llama(self, prompt: str) -> str:
-        """Generate answer using Llama 3.2"""
-        try:
-            response = requests.post(OLLAMA_URL, json={
-                "model": MODEL_NAME,
-                "prompt": prompt,
-                "stream": False,
-                "temperature": 0.1,
-                "max_tokens": 1024
-            })
-            
-            if response.status_code == 200:
-                return response.json().get('response', '').strip()
-            else:
-                return "Error generating response."
-        except Exception as e:
-            print(f"  Error calling Ollama: {e}")
-            return "Error connecting to language model."
-    
     def _empty_response(self) -> Dict[str, Any]:
-        """Return empty response"""
         return {
             "answer": "No knowledge base loaded. Please check your data files.",
             "herb_sources": [],
@@ -408,66 +385,91 @@ Answer:"""
         }
     
     def _print_stats(self):
-        """Print knowledge base statistics"""
         print("\n" + "="*70)
-        print(" KNOWLEDGE BASE STATISTICS")
+        print("KNOWLEDGE BASE STATISTICS")
         print("="*70)
-        print(f"• Herbs/Formulations: {len(self.herbs_data)}")
-        print(f"• Research Articles: {len(self.pubmed_data)}")
-        print(f"• Total Documents: {len(self.all_documents)}")
-        print(f"• Embedding Dimension: {self.embeddings.shape[1] if self.embeddings is not None else 'N/A'}")
+        print(f"Herbs/Formulations: {len(self.herbs_data)}")
+        print(f"Research Articles: {len(self.pubmed_data)}")
+        print(f"Total Documents: {len(self.all_documents)}")
+        print(f"Embedding Dimension: {self.embeddings.shape[1] if self.embeddings is not None else 'N/A'}")
+        print(f"FAISS Index: {'Built' if self.faiss_index else 'Not built'}")
+        print(f"Model: {MODEL_NAME}")
         print("="*70)
 
 
-
-
-if __name__ == "__main__":
+def main():
     print("\n" + "="*80)
-    print("   UNIFIED AYURVEDIC KNOWLEDGE BASE - HERBS + RESEARCH")
+    print("UNIFIED AYURVEDIC KNOWLEDGE BASE")
     print("="*80)
-    
     
     bot = UnifiedAyurvedicRAGBot(
         herbs_file="herbs.json",
         pubmed_file="pubmed_data/pubmed_for_rag.json"
     )
     
-    print("\n   Example questions:")
-    print("     • What herbs help urinary tract disorders?")
-    print("     • What does research say about Ashwagandha?")
-    print("     • Herbs for Vata imbalance with research evidence")
-    print("     • Compare traditional and modern views on Triphala")
+    print("\nExample questions:")
+    print("  What herbs help urinary tract disorders?")
+    print("  What does research say about Ashwagandha?")
+    print("  Herbs for Vata imbalance")
+    print("  What does scientific evidence say about Turmeric?")
     print("="*80)
     
     while True:
-        print("\n Your question (or 'quit' to exit):")
+        print("\nYour question (or 'quit' to exit):")
         q = input("> ").strip()
+        
         if q.lower() in ['quit', 'exit', 'q']:
+            print("\nGoodbye!")
             break
-        if q:
-            print("\n Processing...")
-            result = bot.query(q)
+        
+        if not q:
+            continue
+        
+        print("\nProcessing...")
+        result = bot.query(q)
+        
+        print(f"\nAnswer (confidence: {result['confidence']:.1%}):")
+        print("-" * 80)
+        print(result['answer'])
+        
+        if result['herb_sources'] or result['research_sources']:
+            print("\n" + "=" * 80)
+            print("SOURCES & REFERENCES")
+            print("=" * 80)
             
-            print(f"\n Answer (confidence: {result['confidence']:.1%}):")
-            print("-" * 80)
-            print(result['answer'])
+            if result['herb_sources']:
+                print("\nAYURVEDIC HERB DATABASE")
+                print("-" * 60)
+                for i, source in enumerate(result['herb_sources'], 1):
+                    name = source.get('name', 'Unknown')
+                    relevance = source['relevance']
+                    print(f"\n{i}. {name} (Match: {relevance:.1%})")
+                    if source.get('indications'):
+                        print(f"   {source['indications']}")
             
-            if result['herb_sources'] or result['research_sources']:
-                print("\n Sources used:")
-                
-                if result['herb_sources']:
-                    print("\n   HERB DATABASE:")
-                    for i, source in enumerate(result['herb_sources'], 1):
-                        print(f"    {i}. {source.get('name', 'Unknown')} (relevance: {source['relevance']:.1%})")
-                        if source.get('indications'):
-                            print(f"       {source['indications']}")
-                
-                if result['research_sources']:
-                    print("\n   RESEARCH ARTICLES:")
-                    for i, source in enumerate(result['research_sources'], 1):
-                        print(f"    {i}. {source.get('title', 'Article')[:80]}...")
-                        print(f"       {source.get('journal', '')} ({source.get('year', '')})")
-                
-                print(f"\n   Total sources: {result['total_sources']}")
+            if result['research_sources']:
+                print("\nSCIENTIFIC RESEARCH ARTICLES")
+                print("-" * 60)
+                for i, source in enumerate(result['research_sources'], 1):
+                    title = source.get('title', 'Article')
+                    journal = source.get('journal', '')
+                    year = source.get('year', '')
+                    relevance = source['relevance']
+                    
+                    print(f"\n{i}. {title}")
+                    if journal and year:
+                        print(f"   {journal} ({year}) | Relevance: {relevance:.1%}")
+                    if source.get('abstract') and source['abstract'] != 'No abstract':
+                        abstract = source['abstract']
+                        if len(abstract) > 200:
+                            abstract = abstract[:200] + "..."
+                        print(f"   {abstract}")
             
-            print(f"\n  Processing time: {result['processing_time']:.2f}s")
+            print("\n" + "=" * 80)
+            print(f"Total sources retrieved: {result['total_sources']}")
+        
+        print(f"\nProcessing time: {result['processing_time']:.2f}s")
+
+
+if __name__ == "__main__":
+    main()
